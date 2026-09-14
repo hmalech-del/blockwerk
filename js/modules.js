@@ -183,6 +183,82 @@ const fmVoice = {
   },
 };
 
+const percussion = {
+  id: 'perc',
+  kind: 'source',
+  name: 'Perc',
+  hint: 'Schlagzeugstimme: fallende Tonhöhe, Klick und Körper.',
+  params: [
+    {
+      id: 'wave', label: 'Körper', type: 'select', def: 'sine',
+      options: [
+        { value: 'sine', label: 'Sinus' },
+        { value: 'triangle', label: 'Dreieck' },
+        { value: 'square', label: 'Rechteck' },
+      ],
+    },
+    { id: 'drop', label: 'Tonhöhenfall', min: 0, max: 48, def: 24, unit: 'ct' },
+    { id: 'dropTime', label: 'Fallzeit', min: 0.005, max: 0.5, def: 0.05, unit: 's', scale: 'log' },
+    { id: 'body', label: 'Ausklang', min: 0.03, max: 2, def: 0.35, unit: 's', scale: 'log' },
+    { id: 'click', label: 'Klick', min: 0, max: 1, def: 0.3 },
+    { id: 'noise', label: 'Rauschanteil', min: 0, max: 1, def: 0 },
+  ],
+  spawn(ctx, p, freq, t) {
+    const out = ctx.createGain();
+    out.gain.value = 0.6;
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(1, t + 0.002);
+    env.gain.setTargetAtTime(0.0001, t + 0.002, Math.max(0.01, p.body) / 4);
+    env.connect(out);
+
+    const osc = ctx.createOscillator();
+    osc.type = p.wave;
+    const start = clamp(freq * Math.pow(2, p.drop / 12), 20, ctx.sampleRate / 2 - 100);
+    osc.frequency.setValueAtTime(start, t);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, freq), t + Math.max(0.005, p.dropTime));
+    osc.connect(env);
+    osc.start(t);
+    const nodes = [osc];
+
+    if (p.click > 0.01 || p.noise > 0.01) {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer(ctx);
+      src.loop = true;
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = p.noise > 0.01 ? 400 : 2000;
+      const ng = ctx.createGain();
+      // Der Klick ist ein sehr kurzer Rauschimpuls, der Rauschanteil folgt der Hüllkurve.
+      const peak = Math.max(p.click, p.noise);
+      ng.gain.setValueAtTime(peak, t);
+      ng.gain.setTargetAtTime(0.0001, t, p.noise > 0.01 ? Math.max(0.01, p.body) / 4 : 0.004);
+      src.connect(hp).connect(ng).connect(out);
+      src.start(t);
+      nodes.push(src);
+    }
+
+    let stopped = false;
+    return {
+      out,
+      // Perc klingt von selbst aus; noteOff kürzt nur noch sanft ab.
+      release(time) {
+        if (stopped) return time;
+        const end = time + Math.max(0.05, p.body) + 0.1;
+        nodes.forEach((n) => { try { n.stop(end); } catch (e) { /* egal */ } });
+        stopped = true;
+        return end;
+      },
+      kill(time) {
+        nodes.forEach((n) => { try { n.stop(time); } catch (e) { /* egal */ } });
+        try { out.disconnect(); } catch (e) { /* egal */ }
+        stopped = true;
+      },
+    };
+  },
+};
+
 // Gemeinsames Stimmen-Interface für alle Quellen.
 function voiceHandle(ctx, p, env, out, nodes) {
   let stopped = false;
@@ -517,6 +593,7 @@ export const MODULES = {
   osc: oscillator,
   noise,
   fm: fmVoice,
+  perc: percussion,
   filter: filterFx,
   drive: driveFx,
   crusher: crusherFx,

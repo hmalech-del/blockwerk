@@ -1,14 +1,15 @@
 {
   "name": "blockwerk",
-  "version": "0.1.0",
-  "description": "Modularer Klangbaukasten im Browser – Quellen und Effekte als Blöcke in einer Signalkette.",
+  "version": "0.2.0",
+  "description": "Modularer Klangbaukasten im Browser: Sequenzer, Drum-Loops und frei verkettbare Klangbloecke.",
   "private": true,
   "type": "module",
   "license": "MIT",
   "scripts": {
     "serve": "python3 -m http.server 8080",
-    "test": "node tests/offline-render.mjs && node tests/ui-smoke.mjs",
+    "test": "node tests/offline-render.mjs && node tests/sequencer.mjs && node tests/ui-smoke.mjs",
     "test:dsp": "node tests/offline-render.mjs",
+    "test:seq": "node tests/sequencer.mjs",
     "test:ui": "node tests/ui-smoke.mjs"
   },
   "devDependencies": {

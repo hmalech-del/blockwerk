@@ -1,10 +1,9 @@
-// Audio-Engine: verwaltet den AudioContext, die Effektkette und die Stimmen.
-// Die Engine kennt nur das Patch-Objekt – die Oberfläche ändert das Patch und
-// ruft danach sync()/setParam() auf.
+// Audio-Engine: AudioContext, eine Effektkette je Spur, Stimmenverwaltung.
+// Die Engine liest das Projekt, hält aber keinen eigenen Bearbeitungszustand.
 
 import { MODULES } from './modules.js';
 
-export const MAX_VOICES = 12;
+export const MAX_VOICES_PER_TRACK = 8;
 
 export function midiToFreq(midi) {
   return 440 * Math.pow(2, (midi - 69) / 12);
@@ -13,10 +12,8 @@ export function midiToFreq(midi) {
 export class Engine {
   constructor() {
     this.ctx = null;
-    this.patch = null;
-    this.instances = new Map(); // blockId -> Effekt-Instanz
-    this.voices = new Map();    // midi -> Stimme
-    this.onVoiceChange = () => {};
+    this.project = null;
+    this.tracks = new Map(); // trackId -> Laufzeitobjekt
   }
 
   get running() {
@@ -27,10 +24,9 @@ export class Engine {
   async start() {
     if (!this.ctx) {
       const Ctor = window.AudioContext || window.webkitAudioContext;
-      const ctx = new Ctor();
+      const ctx = new Ctor({ latencyHint: 'interactive' });
       this.ctx = ctx;
 
-      this.chainIn = ctx.createGain();
       this.master = ctx.createGain();
       this.limiter = ctx.createDynamicsCompressor();
       this.limiter.threshold.value = -6;
@@ -41,7 +37,7 @@ export class Engine {
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 1024;
 
-      this.master.gain.value = this.patch ? this.patch.master.volume : 0.7;
+      this.master.gain.value = this.project ? this.project.master.volume : 0.7;
       this.master.connect(this.limiter).connect(this.analyser).connect(ctx.destination);
       this.sync();
     }
@@ -49,15 +45,83 @@ export class Engine {
     return this.ctx;
   }
 
-  setPatch(patch) {
-    this.patch = patch;
+  setProject(project) {
+    this.project = project;
     if (!this.ctx) return;
-    for (const [id, inst] of this.instances) {
-      this.disposeInstance(inst);
-      this.instances.delete(id);
-    }
-    this.master.gain.value = patch.master.volume;
+    this.master.gain.value = project.master.volume;
     this.sync();
+  }
+
+  trackDef(trackId) {
+    return this.project?.tracks.find((t) => t.id === trackId) || null;
+  }
+
+  // ------------------------------------------------------- Graph pflegen
+
+  sync() {
+    if (!this.ctx) return;
+    const alive = new Set();
+
+    for (const def of this.project.tracks) {
+      alive.add(def.id);
+      this.syncTrack(def);
+    }
+    for (const [id, rt] of [...this.tracks]) {
+      if (alive.has(id)) continue;
+      this.killTrack(id);
+      for (const inst of rt.instances.values()) this.disposeInstance(inst);
+      try { rt.out.disconnect(); } catch (e) { /* egal */ }
+      this.tracks.delete(id);
+    }
+    this.applyMix();
+  }
+
+  syncTrack(def) {
+    let rt = this.tracks.get(def.id);
+    if (!rt) {
+      rt = {
+        chainIn: this.ctx.createGain(),
+        out: this.ctx.createGain(),
+        instances: new Map(),
+        held: new Map(),  // midi -> Stimme, solange die Taste gehalten wird
+        active: new Set(), // alle klingenden Stimmen der Spur
+      };
+      rt.out.connect(this.master);
+      this.tracks.set(def.id, rt);
+    }
+
+    const alive = new Set();
+    for (const block of def.chain) {
+      alive.add(block.id);
+      if (rt.instances.has(block.id)) continue;
+      const mod = MODULES[block.type];
+      const inst = mod.create(this.ctx);
+      for (const spec of mod.params) inst.set(spec.id, block.params[spec.id]);
+      rt.instances.set(block.id, inst);
+    }
+    for (const [id, inst] of [...rt.instances]) {
+      if (alive.has(id)) continue;
+      this.disposeInstance(inst);
+      rt.instances.delete(id);
+    }
+
+    this.wireTrack(def, rt);
+  }
+
+  wireTrack(def, rt) {
+    rt.chainIn.disconnect();
+    for (const inst of rt.instances.values()) {
+      try { inst.output.disconnect(); } catch (e) { /* egal */ }
+    }
+    let node = rt.chainIn;
+    for (const block of def.chain) {
+      if (block.bypass) continue;
+      const inst = rt.instances.get(block.id);
+      if (!inst) continue;
+      node.connect(inst.input);
+      node = inst.output;
+    }
+    node.connect(rt.out);
   }
 
   disposeInstance(inst) {
@@ -66,97 +130,110 @@ export class Engine {
     try { inst.output.disconnect(); } catch (e) { /* egal */ }
   }
 
-  // Instanzen an das Patch angleichen (neue anlegen, entfernte abbauen) und neu verdrahten.
-  sync() {
-    if (!this.ctx) return;
-    const alive = new Set();
-
-    for (const block of this.patch.chain) {
-      alive.add(block.id);
-      if (this.instances.has(block.id)) continue;
-      const def = MODULES[block.type];
-      const inst = def.create(this.ctx);
-      for (const spec of def.params) inst.set(spec.id, block.params[spec.id]);
-      this.instances.set(block.id, inst);
+  // Mute/Solo wirken zusammen: sobald irgendwo Solo an ist, schweigt der Rest.
+  applyMix() {
+    if (!this.ctx || !this.project) return;
+    const anySolo = this.project.tracks.some((t) => t.mix.solo);
+    for (const def of this.project.tracks) {
+      const rt = this.tracks.get(def.id);
+      if (!rt) continue;
+      const audible = !def.mix.mute && (!anySolo || def.mix.solo);
+      rt.out.gain.setTargetAtTime(audible ? def.mix.volume : 0, this.ctx.currentTime, 0.01);
     }
-
-    for (const [id, inst] of [...this.instances]) {
-      if (alive.has(id)) continue;
-      this.disposeInstance(inst);
-      this.instances.delete(id);
-    }
-
-    this.wire();
   }
 
-  // Kette in Patch-Reihenfolge verkabeln; Bypass-Blöcke werden übersprungen.
-  wire() {
-    this.chainIn.disconnect();
-    for (const inst of this.instances.values()) {
-      try { inst.output.disconnect(); } catch (e) { /* egal */ }
-    }
-
-    let node = this.chainIn;
-    for (const block of this.patch.chain) {
-      if (block.bypass) continue;
-      const inst = this.instances.get(block.id);
-      if (!inst) continue;
-      node.connect(inst.input);
-      node = inst.output;
-    }
-    node.connect(this.master);
-  }
-
-  setParam(blockId, paramId, value) {
-    const inst = this.instances.get(blockId);
-    if (inst) inst.set(paramId, value);
+  setParam(trackId, blockId, paramId, value) {
+    this.tracks.get(trackId)?.instances.get(blockId)?.set(paramId, value);
   }
 
   setMasterVolume(v) {
     if (this.ctx) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
   }
 
-  // ------------------------------------------------------------- Stimmen
+  // ---------------------------------------------------------- Stimmen
 
-  noteOn(midi, when) {
-    if (!this.ctx) return;
-    const t = when ?? this.ctx.currentTime;
-    if (this.voices.has(midi)) this.noteOff(midi, t);
+  // dur in Sekunden -> die Stimme gibt sich selbst wieder frei (Sequenzer).
+  // Ohne dur bleibt sie liegen, bis noteOff kommt (Klaviatur).
+  noteOn(trackId, midi, when, { dur = null, velocity = 1 } = {}) {
+    if (!this.ctx) return null;
+    const def = this.trackDef(trackId);
+    const rt = this.tracks.get(trackId);
+    if (!def || !rt) return null;
 
-    if (this.voices.size >= MAX_VOICES) {
-      const oldest = this.voices.keys().next().value;
-      this.noteOff(oldest, t);
+    const t = Math.max(when ?? this.ctx.currentTime, this.ctx.currentTime);
+    if (rt.active.size >= MAX_VOICES_PER_TRACK) this.stealOldest(rt, t);
+    if (dur === null && rt.held.has(midi)) this.noteOff(trackId, midi, t);
+
+    const mod = MODULES[def.source.type];
+    const voice = mod.spawn(this.ctx, def.source.params, midiToFreq(midi), t);
+    const amp = this.ctx.createGain();
+    amp.gain.value = Math.max(0, Math.min(1, velocity));
+    voice.out.connect(amp).connect(rt.chainIn);
+
+    const record = { voice, amp, midi, startedAt: t };
+    rt.active.add(record);
+
+    if (dur === null) {
+      rt.held.set(midi, record);
+    } else {
+      const end = voice.release(t + dur);
+      this.scheduleCleanup(rt, record, end);
     }
-
-    const src = this.patch.source;
-    const def = MODULES[src.type];
-    const voice = def.spawn(this.ctx, src.params, midiToFreq(midi), t);
-    voice.out.connect(this.chainIn);
-    this.voices.set(midi, voice);
-    this.onVoiceChange(midi, true);
+    return record;
   }
 
-  noteOff(midi, when) {
-    const voice = this.voices.get(midi);
-    if (!voice) return;
-    this.voices.delete(midi);
-    const t = when ?? this.ctx.currentTime;
-    const end = voice.release(t);
-    // Erst nach dem Ausklingen abhängen, sonst bricht der Release ab.
+  noteOff(trackId, midi, when) {
+    const rt = this.tracks.get(trackId);
+    const record = rt?.held.get(midi);
+    if (!record) return;
+    rt.held.delete(midi);
+    const t = Math.max(when ?? this.ctx.currentTime, this.ctx.currentTime);
+    this.scheduleCleanup(rt, record, record.voice.release(t));
+  }
+
+  stealOldest(rt, when) {
+    let oldest = null;
+    for (const record of rt.active) {
+      if (!oldest || record.startedAt < oldest.startedAt) oldest = record;
+    }
+    if (!oldest) return;
+    rt.active.delete(oldest);
+    rt.held.delete(oldest.midi);
+    oldest.voice.kill(when);
+    try { oldest.amp.disconnect(); } catch (e) { /* egal */ }
+  }
+
+  // Erst nach dem Ausklingen abhängen, sonst bricht der Release ab.
+  scheduleCleanup(rt, record, endTime) {
+    const delay = Math.max(0, (endTime - this.ctx.currentTime) * 1000) + 80;
     setTimeout(() => {
-      try { voice.out.disconnect(); } catch (e) { /* egal */ }
-    }, Math.max(0, (end - this.ctx.currentTime) * 1000) + 60);
-    this.onVoiceChange(midi, false);
+      rt.active.delete(record);
+      try { record.amp.disconnect(); } catch (e) { /* egal */ }
+      try { record.voice.out.disconnect(); } catch (e) { /* egal */ }
+    }, delay);
+  }
+
+  killTrack(trackId) {
+    const rt = this.tracks.get(trackId);
+    if (!rt || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    for (const record of [...rt.active]) {
+      rt.active.delete(record);
+      record.voice.kill(t);
+      try { record.amp.disconnect(); } catch (e) { /* egal */ }
+    }
+    rt.held.clear();
   }
 
   panic() {
     if (!this.ctx) return;
-    const t = this.ctx.currentTime;
-    for (const [midi, voice] of [...this.voices]) {
-      this.voices.delete(midi);
-      voice.kill(t);
-      this.onVoiceChange(midi, false);
-    }
+    for (const id of this.tracks.keys()) this.killTrack(id);
+  }
+
+  voiceCount() {
+    let n = 0;
+    for (const rt of this.tracks.values()) n += rt.active.size;
+    return n;
   }
 
   // Pegel als RMS zwischen 0 und 1 für die Anzeige.

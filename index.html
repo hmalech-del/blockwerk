@@ -2,9 +2,9 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Blockwerk – modularer Klangbaukasten</title>
-  <meta name="description" content="Modulare Web-Audio-App: Klangerzeuger und Effekte als Blöcke in einer Kette anordnen.">
+  <meta name="description" content="Modulare Web-Audio-App: Sequenzer, Drum-Loops und frei verkettbare Klangblöcke – gebaut für Tablet und Laptop.">
   <link rel="stylesheet" href="css/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>▦</text></svg>">
 </head>
@@ -21,70 +21,111 @@
     <div class="transport">
       <button id="power" class="power">Audio starten</button>
 
+      <div class="play-group">
+        <button id="play" class="play">▶ Start</button>
+        <div class="position">
+          <span id="quantize-ring" class="ring" aria-hidden="true"></span>
+          <output id="position" title="Takt.Zählzeit">–</output>
+        </div>
+      </div>
+
+      <label class="ctrl">
+        <span>Tempo</span>
+        <input id="tempo" type="number" min="40" max="240" step="1" value="120" inputmode="numeric">
+        <button id="tap" class="icon" title="Tempo antippen">Tap</button>
+      </label>
+
+      <label class="ctrl">
+        <span>Swing</span>
+        <input id="swing" type="range" min="0" max="60" value="0">
+        <output id="swing-value">0 %</output>
+      </label>
+
+      <label class="ctrl">
+        <span>Wechsel</span>
+        <select id="quantize"></select>
+      </label>
+
       <label class="ctrl">
         <span>Master</span>
         <input id="volume" type="range" min="0" max="100" value="70">
         <output id="volume-value">70 %</output>
       </label>
 
-      <div class="ctrl octave">
-        <span>Oktave</span>
-        <button class="icon" id="oct-down" title="Oktave runter">−</button>
-        <output id="octave-value">4</output>
-        <button class="icon" id="oct-up" title="Oktave hoch">+</button>
-      </div>
-
       <button id="panic" class="ghost" title="Alle Stimmen stoppen">Panik</button>
     </div>
   </header>
 
+  <nav class="tabs">
+    <button data-view="seq" class="on">Sequenzer</button>
+    <button data-view="sound">Klang</button>
+    <div class="tabs-right">
+      <label class="ctrl small">
+        <span>Tonart</span>
+        <select id="root"></select>
+        <select id="scale"></select>
+      </label>
+    </div>
+  </nav>
+
   <main>
-    <section class="section">
-      <div class="section-head">
-        <h2>Signalkette</h2>
-        <p>Blöcke ziehen oder mit ◀ ▶ verschieben. Das Signal läuft von der Quelle bis zum Master.</p>
-      </div>
-      <div class="rack" id="rack"></div>
+    <section data-panel="seq">
+      <div id="sequencer" class="seq"></div>
     </section>
 
-    <section class="section">
+    <section data-panel="sound" hidden>
+      <div class="section-head">
+        <h2>Signalkette der Spur</h2>
+        <p>Blöcke ziehen oder mit ◀ ▶ verschieben. Gilt für die im Sequenzer ausgewählte Spur.</p>
+      </div>
+      <div class="rack" id="rack"></div>
+
       <div class="section-head">
         <h2>Blöcke hinzufügen</h2>
         <p>Neue Effekte hängen sich ans Ende der Kette.</p>
       </div>
       <div class="palette" id="palette"></div>
-    </section>
 
-    <section class="section">
       <div class="section-head">
-        <h2>Patch</h2>
-        <p>Wird automatisch im Browser gespeichert.</p>
+        <h2>Klang-Presets</h2>
+        <p>Ersetzt Quelle und Kette der ausgewählten Spur.</p>
       </div>
       <div class="patchbar">
-        <input id="patch-name" type="text" aria-label="Patch-Name" placeholder="Patch-Name">
-        <select id="presets" aria-label="Preset laden">
-          <option value="">Preset laden …</option>
+        <select id="presets" aria-label="Klang-Preset laden">
+          <option value="">Preset wählen …</option>
         </select>
-        <button id="new-patch" class="ghost">Neu</button>
+      </div>
+    </section>
+
+    <section class="play-section">
+      <div class="section-head">
+        <h2>Spielen &amp; Set</h2>
+        <p>Die Klaviatur spielt die ausgewählte Spur. Leertaste startet und stoppt.</p>
+      </div>
+
+      <div class="patchbar">
+        <input id="project-name" type="text" aria-label="Name des Sets" placeholder="Name des Sets">
+        <div class="ctrl octave">
+          <span>Oktave</span>
+          <button class="icon" id="oct-down" title="Oktave runter">−</button>
+          <output id="octave-value">4</output>
+          <button class="icon" id="oct-up" title="Oktave hoch">+</button>
+        </div>
+        <button id="demo-project" class="ghost">Demo-Set</button>
+        <button id="new-project" class="ghost">Neu</button>
         <button id="export" class="ghost">Export</button>
         <label class="file ghost">
           Import
           <input id="import" type="file" accept="application/json,.json" hidden>
         </label>
       </div>
-    </section>
 
-    <section class="section play">
-      <div class="section-head">
-        <h2>Spielen</h2>
-        <p>Tastatur: <kbd>A</kbd> <kbd>W</kbd> <kbd>S</kbd> <kbd>E</kbd> <kbd>D</kbd> <kbd>F</kbd> <kbd>T</kbd> <kbd>G</kbd> <kbd>Z</kbd> <kbd>H</kbd> <kbd>U</kbd> <kbd>J</kbd> <kbd>K</kbd> · Oktave mit <kbd>←</kbd> <kbd>→</kbd></p>
-      </div>
       <div class="keyboard" id="keyboard"></div>
     </section>
   </main>
 
   <footer>
-    <p>Nächste Ausbaustufe: Sequenzer und Drum-Machine, die dieselbe Kette ansteuern.</p>
+    <p>Nächste Ausbaustufe: Live-Ansicht mit Szenen-Vorschau und ein Set-Script, das den Ablauf beschreibt.</p>
   </footer>
 
   <script type="module" src="js/app.js"></script>
