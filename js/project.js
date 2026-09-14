@@ -64,6 +64,19 @@ export function makeTrack(partial = {}) {
     }),
     clip: 0,
     queued: null,
+    queuedMute: null,
+  };
+}
+
+// Eine Szene ist eine Momentaufnahme: welcher Clip läuft je Spur, was ist
+// stumm. Sie wird über Spur-IDs gespeichert, damit Umsortieren nichts kaputt
+// macht.
+export function makeScene(name, tracks) {
+  return {
+    id: uid('s'),
+    name,
+    slots: Object.fromEntries(tracks.map((t) => [t.id, t.clip])),
+    mutes: Object.fromEntries(tracks.map((t) => [t.id, t.mix.mute])),
   };
 }
 
@@ -77,6 +90,7 @@ export function makeProject(name = 'Neues Set') {
     root: 48,
     scale: 'minor',
     tracks: [makeTrack({ name: 'Spur 1', color: TRACK_COLORS[0], clips: [''] })],
+    scenes: [],
     master: { volume: 0.7 },
   };
 }
@@ -131,6 +145,23 @@ export function demoProject() {
       ],
     }),
   ];
+
+  const [kick, snare, hat, bass, lead] = project.tracks;
+  const scene = (name, slots, mutes = {}) => ({
+    id: uid('s'),
+    name,
+    slots,
+    mutes: Object.fromEntries(project.tracks.map((t) => [t.id, !!mutes[t.id]])),
+  });
+  project.scenes = [
+    scene('Intro', { [kick.id]: 0, [snare.id]: 0, [hat.id]: 0, [bass.id]: 0, [lead.id]: 0 },
+      { [snare.id]: true, [lead.id]: true }),
+    scene('Groove', { [kick.id]: 0, [snare.id]: 0, [hat.id]: 0, [bass.id]: 0, [lead.id]: 0 },
+      { [lead.id]: true }),
+    scene('Hook', { [kick.id]: 0, [snare.id]: 1, [hat.id]: 1, [bass.id]: 1, [lead.id]: 1 }),
+    scene('Break', { [kick.id]: 1, [snare.id]: 1, [hat.id]: 1, [bass.id]: 0, [lead.id]: 0 },
+      { [bass.id]: true, [lead.id]: true }),
+  ];
   return project;
 }
 
@@ -178,7 +209,26 @@ function normalizeTrack(raw, index) {
   if (!track.clips.some(Boolean)) track.clips[0] = makeClip({});
   track.clip = Number.isInteger(raw?.clip) && raw.clip >= 0 && raw.clip < CLIP_SLOTS.length ? raw.clip : 0;
   track.queued = null;
+  track.queuedMute = null;
   return track;
+}
+
+// Szenen dürfen nur auf vorhandene Spuren und gefüllte Slots zeigen.
+function normalizeScenes(raw, tracks) {
+  if (!Array.isArray(raw)) return [];
+  const byId = new Map(tracks.map((t) => [t.id, t]));
+  return raw.slice(0, 12).map((scene, i) => {
+    const slots = {};
+    const mutes = {};
+    for (const [trackId, slot] of Object.entries(scene?.slots || {})) {
+      const track = byId.get(trackId);
+      if (track && Number.isInteger(slot) && track.clips[slot]) slots[trackId] = slot;
+    }
+    for (const [trackId, muted] of Object.entries(scene?.mutes || {})) {
+      if (byId.has(trackId)) mutes[trackId] = !!muted;
+    }
+    return { id: scene?.id || uid('s'), name: scene?.name || `Szene ${i + 1}`, slots, mutes };
+  });
 }
 
 const clamp01 = (v) => Math.min(1, Math.max(0, Number(v) || 0));
@@ -188,6 +238,7 @@ export function normalizeProject(raw) {
   if (raw?.version === 1 || (raw?.source && !raw?.tracks)) {
     const project = makeProject(raw.name || 'Übernommenes Patch');
     project.tracks = [normalizeTrack({ name: raw.name || 'Spur 1', source: raw.source, chain: raw.chain }, 0)];
+    project.scenes = [];
     project.master.volume = clamp01(raw?.master?.volume ?? 0.7);
     return project;
   }
@@ -203,6 +254,7 @@ export function normalizeProject(raw) {
   project.tracks = tracks.length
     ? tracks.slice(0, 8).map(normalizeTrack)
     : demoProject().tracks;
+  project.scenes = normalizeScenes(raw?.scenes, project.tracks);
   return project;
 }
 

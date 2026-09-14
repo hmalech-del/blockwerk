@@ -27,10 +27,14 @@ const start = await project();
 check('Demo-Set geladen', start.tracks.length === 5, start.tracks.map((t) => t.name).join(', '));
 check('Raster gezeichnet', (await page.$$('.track')).length === 5);
 
-// Audio und Transport
-await page.click('#power');
+// Startansicht ist Live – fuer diesen Test in den Sequenzer wechseln.
+await page.click('[data-view="seq"]');
+check('Reiterwechsel zum Sequenzer', await page.isVisible('#sequencer .track'));
+
+// Die erste Geste irgendwo auf der Seite startet den Ton bereits – hier war
+// das der Reiterwechsel.
 await page.waitForTimeout(200);
-check('Audio startet', (await state()) === 'running');
+check('Erste Geste startet Audio', (await state()) === 'running');
 
 await page.click('#play');
 await page.waitForTimeout(900);
@@ -139,6 +143,7 @@ check('Klang-Preset angewendet', (await project()).tracks[5].source.type === 'pe
 
 // Klaviatur spielt die gewählte Spur
 await page.click('[data-view="seq"]');
+await page.waitForTimeout(100);
 await page.keyboard.down('a');
 await page.waitForTimeout(200);
 const held = await page.evaluate(() => window.blockwerk.engine.voiceCount());

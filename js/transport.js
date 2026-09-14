@@ -3,7 +3,7 @@
 // fällig sind, und diese werden mit exaktem AudioContext-Zeitstempel
 // vorausgeplant. Die Audio-Uhr bestimmt den Groove, nicht der Timer.
 
-import { degToMidi } from './project.js';
+import { degToMidi, STEPS_PER_BAR } from './project.js';
 
 const INTERVAL_MS = 25;
 const LOOKAHEAD = 0.15;
@@ -101,17 +101,50 @@ export class Transport {
     this.onClipChange();
   }
 
+  // Eine Szene schaltet alle Spuren gemeinsam um – der wichtigste Griff live.
+  queueScene(scene) {
+    if (!scene) return;
+    for (const track of this.project.tracks) {
+      const slot = scene.slots[track.id];
+      if (Number.isInteger(slot) && track.clips[slot]) {
+        track.queued = this.playing ? slot : null;
+        if (!this.playing) track.clip = slot;
+      }
+      const mute = scene.mutes?.[track.id];
+      if (typeof mute === 'boolean') {
+        if (this.playing) track.queuedMute = mute;
+        else track.mix.mute = mute;
+      }
+    }
+    this.onClipChange();
+  }
+
   applyQueued(force = false) {
     let changed = false;
     for (const track of this.project.tracks) {
-      if (track.queued === null) continue;
-      if (track.clips[track.queued] || force) {
-        track.clip = track.queued;
+      if (track.queued !== null) {
+        if (track.clips[track.queued] || force) track.clip = track.queued;
+        track.queued = null;
+        changed = true;
       }
-      track.queued = null;
-      changed = true;
+      if (track.queuedMute !== null) {
+        track.mix.mute = track.queuedMute;
+        track.queuedMute = null;
+        changed = true;
+      }
     }
     if (changed) this.onClipChange();
+  }
+
+  // Nächste Quantisierungsgrenze in Schritten – dort greifen wartende Wechsel.
+  switchStep() {
+    const q = Math.max(1, this.project.quantize);
+    return Math.ceil((this.position() + 0.0001) / q) * q;
+  }
+
+  // Verbleibende Takte bis dahin, für den Countdown.
+  barsUntilSwitch() {
+    return (this.switchStep() - this.position()) / STEPS_PER_BAR;
   }
 
   // Fortlaufende Position in Schritten (mit Nachkommastelle) für die Anzeige.

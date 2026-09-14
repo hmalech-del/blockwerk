@@ -5,8 +5,8 @@ frei verkettbaren Klangblöcken. Kein Plugin-Format, kein Build, kein Framework 
 reines HTML, CSS und JavaScript auf der Web Audio API.
 
 Ziel ist ein Werkzeug für Live-Auftritte auf einem 10-Zoll-Tablet oder Laptop:
-Loops vorbereiten, im Set umschalten, Verläufe scripten. Der Sequenzer steht,
-die Live-Ansicht ist der nächste Schritt (siehe *Fahrplan*).
+Loops vorbereiten, im Set umschalten, Verläufe scripten. Sequenzer und
+Live-Ansicht stehen; das Set-Script ist der nächste Schritt (siehe *Fahrplan*).
 
 ## Ausprobieren
 
@@ -20,9 +20,37 @@ python3 -m http.server 8080
 
 Alternativ über GitHub Pages veröffentlichen (Settings → Pages → Branch `main`, Ordner `/`).
 
+## Kein Ton?
+
+1. **Stummschalter am Gerät** – auf dem iPhone schaltet der Schalter am Rand
+   auch Web-Audio stumm. Die App meldet sich als „playback" an, damit iOS sie
+   wie einen Player behandelt; bei älteren iOS-Versionen greift das nicht.
+2. **Testton** in der Kopfzeile – ein Tipp, ein Ton. Bleibt es still, liegt es
+   am Gerät, nicht am Set.
+3. Die Anzeige neben dem Testton nennt den Zustand: *pausiert* (antippen),
+   *unterbrochen* (Anruf oder andere App hatte die Ausgabe) oder *aus*.
+4. Nach einem Anruf oder App-Wechsel nimmt die App den Ton beim Zurückkehren
+   von selbst wieder auf.
+
+## Live-Ansicht
+
+Ein Raster aus 64 Zellen beantwortet die Frage „was läuft gerade?" – die hört
+man aber ohnehin. Live zählt „was passiert als Nächstes?". Deshalb ein
+Streifen statt eines Rasters:
+
+- Der **Spielkopf steht fest**, das Material läuft durch ihn hindurch. Links das
+  Gespielte (gedimmt), rechts das Kommende.
+- Ein vorgemerkter Clip erscheint **vor dem Spielkopf**, mit grüner Kontur und
+  gestrichelter Wechselmarke – man sieht seine eigene Zukunft, bevor sie klingt,
+  und kann sie bis zur letzten Sekunde umwerfen.
+- **Szenen** schalten alle Spuren gemeinsam, Stummschaltungen eingeschlossen.
+  „＋ Szene sichern" macht aus der aktuellen Auswahl eine neue Szene.
+- **Pads** sind bewusst groß: im Dunkeln trifft niemand eine 30-Pixel-Fläche.
+  Das M-Pad schaltet sofort stumm, die Clip-Pads warten auf die Taktgrenze.
+
 ## Bedienung
 
-- **Audio starten** – Browser erlauben Ton erst nach einem Klick.
+- **Audio starten** – Browser erlauben Ton erst nach einer Berührung; die erste Geste irgendwo auf der Seite genügt.
 - **Start / Stopp** – Schaltfläche oder Leertaste.
 - **Schritte setzen** – Tippen schaltet durch *aus → an → Akzent*. Senkrechtes
   Ziehen auf einem Schritt verschiebt die Tonhöhe in Skalenstufen; die Zahl im
@@ -96,6 +124,7 @@ js/
   project.js     Datenmodell, Skalen, Normalisierung, Presets
   pattern.js     Clip ⇄ Text
   sequencer.js   Raster, Clips, Spielkopf
+  live.js        Streifen mit Vorschau, Szenen, Pads
   rack.js        Klangkette der ausgewählten Spur
   keyboard.js    Bildschirm- und Computertastatur
   app.js         Verdrahtung, Persistenz, Transport-Bedienung
@@ -117,7 +146,7 @@ Tonartwechsel das laufende Set, und derselbe Clip passt in jeden Kontext.
 
 ## Tests
 
-Drei Playwright-Tests laufen headless gegen einen eingebauten Mini-Webserver:
+Vier Playwright-Tests laufen headless gegen einen eingebauten Mini-Webserver:
 
 ```bash
 npm install
@@ -130,20 +159,15 @@ npm test
   Parametern auf Minimum bzw. Maximum.
 - `tests/sequencer.mjs` misst die Abstände der geplanten Noten, prüft
   quantisierte Clipwechsel, Skalenrechnung, Textformat und Stimmenfreigabe.
+- `tests/live.mjs` prüft die Live-Ansicht (Streifen, Vorschau, Szenen, Pads),
+  die Audio-Absicherung (Entsperren, Testton, Erholung nach Unterbrechung) und
+  dass auf 390 px Breite nichts waagerecht überläuft.
 - `tests/ui-smoke.mjs` bedient die Oberfläche auf 1280 × 800 (10-Zoll-Tablet):
   Schritte setzen, ziehen, Clips, Spuren, Effekte, Textmodus, Persistenz.
 
 ## Fahrplan
 
-**1. Live-Ansicht.** Statt eines Rasters aus 64 Zellen, das man im Dunkeln
-trifft oder eben nicht: ein waagerechter Streifen, der durch einen festen
-Spielkopf läuft. Links das Gespielte, rechts das *Kommende* – vorgemerkte Clips
-stehen sichtbar vor dem Spielkopf, mit Countdown bis zum Wechsel. Die zentrale
-Frage live ist nicht „was läuft?", sondern „was passiert als Nächstes?".
-Bedienelemente bleiben ortsfest und daumengroß, damit man sie findet, ohne
-hinzusehen.
-
-**2. Set-Script.** Eine Textdatei beschreibt den Ablauf, dieselbe Notation wie
+**1. Set-Script.** Eine Textdatei beschreibt den Ablauf, dieselbe Notation wie
 bei den Clips, eine Zeile je Ereignis:
 
 ```
@@ -160,8 +184,9 @@ Live-Ansicht die nächsten Ereignisse an – und jeder Eingriff von Hand hat
 Vorrang. Wer improvisiert, steigt einfach wieder ein. Das nimmt die Angst vor
 dem Blackout auf der Bühne, ohne das Set festzunageln.
 
-**3. Danach denkbar:** Modulationsquellen (LFO auf beliebige Parameter),
-Aufnahme als WAV, MIDI-Eingang für Controller mit echten Knöpfen.
+**2. Danach denkbar:** Modulationsquellen (LFO auf beliebige Parameter),
+Aufnahme als WAV, MIDI-Eingang für Controller mit echten Knöpfen, und ein
+Worker-Timer, damit der Takt auch in Hintergrund-Tabs nicht stolpert.
 
 ## Lizenz
 

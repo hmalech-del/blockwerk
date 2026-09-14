@@ -23,9 +23,16 @@ export class Engine {
   // Browser erlauben Audio erst nach einer Nutzergeste.
   async start() {
     if (!this.ctx) {
+      // Ohne das hier behandelt iOS die App als "ambient" – dann schaltet der
+      // Stummschalter am Gehäuse den Ton ab, obwohl alles zu laufen scheint.
+      try {
+        if (navigator.audioSession) navigator.audioSession.type = 'playback';
+      } catch (e) { /* nur Safari 16.4+ */ }
+
       const Ctor = window.AudioContext || window.webkitAudioContext;
       const ctx = new Ctor({ latencyHint: 'interactive' });
       this.ctx = ctx;
+      ctx.onstatechange = () => this.onStateChange(ctx.state);
 
       this.master = ctx.createGain();
       this.limiter = ctx.createDynamicsCompressor();
@@ -41,9 +48,41 @@ export class Engine {
       this.master.connect(this.limiter).connect(this.analyser).connect(ctx.destination);
       this.sync();
     }
-    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    if (this.ctx.state !== 'running') await this.ctx.resume();
+    this.unlock();
     return this.ctx;
   }
+
+  // iOS gibt die Audioausgabe erst frei, wenn innerhalb einer Nutzergeste
+  // tatsächlich etwas abgespielt wurde – ein stilles Sample genügt.
+  unlock() {
+    if (this._unlocked || !this.ctx) return;
+    try {
+      const source = this.ctx.createBufferSource();
+      source.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+      source.connect(this.ctx.destination);
+      source.start(0);
+      this._unlocked = true;
+    } catch (e) { /* nicht schlimm */ }
+  }
+
+  // Ein hörbarer Testton – im Zweifel sagt der mehr als jede Statusanzeige.
+  testTone(when) {
+    if (!this.ctx) return;
+    const t = when ?? this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(660, t);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+    osc.connect(gain).connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.5);
+  }
+
+  onStateChange() {}
 
   setProject(project) {
     this.project = project;

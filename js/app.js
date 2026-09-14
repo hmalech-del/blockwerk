@@ -4,11 +4,12 @@ import { Engine } from './engine.js';
 import { Transport } from './transport.js';
 import { Rack, renderPalette } from './rack.js';
 import { Sequencer } from './sequencer.js';
+import { Live } from './live.js';
 import { Keyboard } from './keyboard.js';
 import { parseSteps, stepsToText } from './pattern.js';
 import {
   CLIP_SLOTS, SCALES, TRACK_COLORS, applyPreset, degToMidi, demoProject,
-  makeClip, makeProject, makeTrack, normalizeProject, SOUND_PRESETS,
+  makeClip, makeProject, makeScene, makeTrack, normalizeProject, SOUND_PRESETS,
 } from './project.js';
 import { defaultParams } from './modules.js';
 
@@ -22,8 +23,13 @@ let project = loadProject();
 let selectedId = project.tracks[0]?.id || null;
 let userSuspended = false;
 
+let currentView = 'live';
+
 const transport = new Transport(engine, () => project, {
-  onClipChange: () => sequencer.render(),
+  onClipChange: () => {
+    sequencer.render();
+    live.refresh();
+  },
 });
 
 const selectedTrack = () => project.tracks.find((t) => t.id === selectedId) || project.tracks[0] || null;
@@ -124,6 +130,7 @@ const sequencer = new Sequencer($('#sequencer'), {
     selectedId = track.id;
     engine.sync();
     sequencer.render();
+    live.render();
     rack.render();
     save();
   },
@@ -146,6 +153,27 @@ const sequencer = new Sequencer($('#sequencer'), {
     const free = track.clips.findIndex((c) => !c);
     if (!source || free < 0) return;
     track.clips[free] = { ...makeClip({ bars: source.bars }), steps: source.steps.map((s) => ({ ...s })) };
+    save();
+  },
+});
+
+const live = new Live($('#live'), {
+  getProject: () => project,
+  transport: () => transport,
+  onSelect: (id) => {
+    selectedId = id;
+    sequencer.render();
+    rack.render();
+    save();
+  },
+  onChange: ({ mix = false } = {}) => {
+    if (mix) engine.applyMix();
+    save();
+  },
+  onSceneSave: () => {
+    const name = prompt('Name der Szene?', `Szene ${project.scenes.length + 1}`);
+    if (name === null) return;
+    project.scenes.push(makeScene(name.trim() || `Szene ${project.scenes.length + 1}`, project.tracks));
     save();
   },
 });
@@ -176,7 +204,33 @@ function updatePower() {
   const btn = $('#power');
   btn.classList.toggle('on', engine.running);
   btn.textContent = engine.running ? 'Audio läuft' : 'Audio starten';
+  updateAudioState();
 }
+
+// Sagt im Zweifel, woran es liegt: Safari kennt zusätzlich "interrupted",
+// wenn ein Anruf oder eine andere App die Ausgabe übernommen hat.
+function updateAudioState() {
+  const el = $('#audio-state');
+  if (!el) return;
+  const state = engine.ctx?.state;
+  const labels = {
+    running: '',
+    suspended: 'Audio pausiert – antippen',
+    interrupted: 'Audio unterbrochen – antippen',
+    closed: 'Audio geschlossen',
+  };
+  const text = state ? (labels[state] ?? state) : 'Audio aus';
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+engine.onStateChange = () => updatePower();
+
+// iOS unterbricht den Kontext bei Anrufen und beim Wegschalten.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || userSuspended || !engine.ctx) return;
+  if (engine.ctx.state !== 'running') engine.start().then(updatePower).catch(() => {});
+});
 
 function useProject(next) {
   transport.stop();
@@ -186,6 +240,7 @@ function useProject(next) {
   engine.setProject(project);
   syncControls();
   sequencer.render();
+  live.render();
   rack.render();
   save();
 }
@@ -293,6 +348,29 @@ $('#volume').addEventListener('input', (e) => {
 });
 
 $('#panic').addEventListener('click', () => engine.panic());
+
+// Soundcheck: sagt in einem Tipp, ob überhaupt Ton aus dem Gerät kommt.
+// Bleibt es still, ist auf iOS fast immer der Stummschalter am Gehäuse schuld –
+// genau dann ist der Hinweis nützlich, vorher wäre er nur Deko.
+let hintTimer = null;
+$('#test-tone').addEventListener('click', async () => {
+  userSuspended = false;
+  await ensureAudio();
+  engine.testTone();
+  updatePower();
+
+  const el = $('#audio-state');
+  if (engine.running && el) {
+    el.hidden = false;
+    el.classList.add('neutral');
+    el.textContent = 'Testton gespielt – nichts gehört? Stummschalter und Lautstärke am Gerät prüfen.';
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => {
+      el.classList.remove('neutral');
+      updateAudioState();
+    }, 6000);
+  }
+});
 $('#oct-down').addEventListener('click', () => keyboard.shift(-1));
 $('#oct-up').addEventListener('click', () => keyboard.shift(1));
 
@@ -351,7 +429,9 @@ for (const tab of document.querySelectorAll('[data-view]')) {
     for (const panel of document.querySelectorAll('[data-panel]')) {
       panel.hidden = panel.dataset.panel !== view;
     }
+    currentView = view;
     if (view === 'sound') rack.render();
+    if (view === 'live') live.render();
   });
 }
 
@@ -391,15 +471,17 @@ $('#root').innerHTML = Array.from({ length: 24 }, (_, i) => {
 engine.setProject(project);
 syncControls();
 sequencer.render();
+live.render();
 rack.render();
 updatePower();
 updatePlay();
 
-window.blockwerk = { engine, transport, project: () => project, sequencer, rack, keyboard, CLIP_SLOTS };
+window.blockwerk = { engine, transport, project: () => project, sequencer, live, rack, keyboard, CLIP_SLOTS };
 
 (function frame() {
-  rack.setLevel(engine.running ? engine.level() : 0);
-  sequencer.tick();
+  if (currentView === 'sound') rack.setLevel(engine.running ? engine.level() : 0);
+  if (currentView === 'seq') sequencer.tick();
+  if (currentView === 'live') live.tick();
   const bar = $('#position');
   if (bar) {
     const pos = transport.position();
