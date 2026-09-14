@@ -91,6 +91,7 @@ export function makeProject(name = 'Neues Set') {
     scale: 'minor',
     tracks: [makeTrack({ name: 'Spur 1', color: TRACK_COLORS[0], clips: [''] })],
     scenes: [],
+    script: { text: '', enabled: false },
     master: { volume: 0.7 },
   };
 }
@@ -162,6 +163,27 @@ export function demoProject() {
     scene('Break', { [kick.id]: 1, [snare.id]: 1, [hat.id]: 1, [bass.id]: 0, [lead.id]: 0 },
       { [bass.id]: true, [lead.id]: true }),
   ];
+
+  // Liegt bereit, laeuft aber erst, wenn man es im Script-Reiter einschaltet.
+  project.script = {
+    enabled: false,
+    text: [
+      '# Beispiel-Ablauf – von Hand umschalten geht jederzeit',
+      'tempo 122',
+      'key C minor',
+      'swing 12',
+      '',
+      'bar 1    scene Intro',
+      'bar 5    unmute snare',
+      'bar 9    scene Groove',
+      'bar 13   bass.filter.freq 400 -> 2600 over 4 bars',
+      'bar 17   scene Hook',
+      'bar 25   scene Break',
+      'bar 29   bass.filter.freq 2600 -> 400 over 2 bars',
+      'bar 33   scene Hook',
+      '',
+    ].join('\n'),
+  };
   return project;
 }
 
@@ -255,6 +277,10 @@ export function normalizeProject(raw) {
     ? tracks.slice(0, 8).map(normalizeTrack)
     : demoProject().tracks;
   project.scenes = normalizeScenes(raw?.scenes, project.tracks);
+  project.script = {
+    text: typeof raw?.script?.text === 'string' ? raw.script.text.slice(0, 20000) : '',
+    enabled: !!raw?.script?.enabled,
+  };
   return project;
 }
 

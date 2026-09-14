@@ -59,6 +59,7 @@ export class Live {
           <span class="now-label">jetzt</span>
           <span class="next-label" data-role="countdown"></span>
         </div>
+        <div class="script-next" data-role="script-next" hidden></div>
       </div>
 
       <div class="scene-bar">
@@ -72,6 +73,7 @@ export class Live {
     this.canvas = this.el.querySelector('.strip');
     this.ctx2d = this.canvas.getContext('2d');
     this.countdown = this.el.querySelector('[data-role="countdown"]');
+    this.scriptNext = this.el.querySelector('[data-role="script-next"]');
     this.padRows = new Map(
       [...this.el.querySelectorAll('.pad-row')].map((row) => [row.dataset.id, row])
     );
@@ -217,7 +219,7 @@ export class Live {
     }
   }
 
-  tick() {
+  tick(script = null) {
     this.draw();
     const transport = this.hooks.transport();
     if (!this.countdown) return;
@@ -226,6 +228,30 @@ export class Live {
       ? `Wechsel in ${transport.barsUntilSwitch().toFixed(1)} Takten`
       : '';
     if (this.countdown.textContent !== text) this.countdown.textContent = text;
+    this.showScript(script, transport);
+  }
+
+  // Das Script zeigt seine nächsten Schritte an – derselbe Gedanke wie der
+  // Streifen: sichtbar machen, was kommt.
+  showScript(script, transport) {
+    if (!this.scriptNext) return;
+    if (!script || !script.enabled) {
+      if (!this.scriptNext.hidden) this.scriptNext.hidden = true;
+      return;
+    }
+    const next = script.upcoming(transport.playing ? transport.position() : 0, 3);
+    const html = next.length
+      ? next.map((e, i) => `
+          <span class="script-step${i === 0 ? ' soon' : ''}">
+            <b>Takt ${e.bar}</b> ${escapeHtml(e.text)}
+            ${transport.playing ? `<i>in ${Math.max(0, e.inBars).toFixed(1)}</i>` : ''}
+          </span>`).join('')
+      : '<span class="script-step">Script: nichts mehr geplant</span>';
+    if (this._scriptHtml !== html) {
+      this.scriptNext.innerHTML = html;
+      this._scriptHtml = html;
+    }
+    this.scriptNext.hidden = false;
   }
 
   // Nur die Zustände der Pads nachziehen, ohne alles neu zu bauen.
@@ -282,4 +308,8 @@ export class Live {
       return undefined;
     });
   }
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }

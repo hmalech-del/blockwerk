@@ -4,9 +4,9 @@ Modularer Klangbaukasten im Browser: Spuren mit Step-Sequenzer, Drum-Loops und
 frei verkettbaren Klangblöcken. Kein Plugin-Format, kein Build, kein Framework –
 reines HTML, CSS und JavaScript auf der Web Audio API.
 
-Ziel ist ein Werkzeug für Live-Auftritte auf einem 10-Zoll-Tablet oder Laptop:
-Loops vorbereiten, im Set umschalten, Verläufe scripten. Sequenzer und
-Live-Ansicht stehen; das Set-Script ist der nächste Schritt (siehe *Fahrplan*).
+Ein Werkzeug für Live-Auftritte auf einem 10-Zoll-Tablet oder Laptop: Loops
+vorbereiten, im Set umschalten, den Ablauf als Text schreiben – und ihn
+jederzeit von Hand überstimmen.
 
 ## Ausprobieren
 
@@ -82,8 +82,61 @@ Streifen statt eines Rasters:
 - **Klang** – zweiter Reiter: Quelle und Effektkette der ausgewählten Spur.
 - **Klaviatur** – spielt die ausgewählte Spur, Tasten `A W S E D F T G Z H U J K`,
   Oktave mit `←` / `→`.
+- **Script** – vierter Reiter: der Ablauf als Text, mit `Strg`/`Cmd` + `Enter`
+  übernehmen. Läuft erst, wenn „Script aktiv" gesetzt ist.
 
 Das Set wird automatisch im Browser gespeichert; Export und Import laufen über JSON.
+
+## Set-Script
+
+Der Ablauf eines Sets als Text, im Reiter **Script**. Er feuert an Taktgrenzen
+und setzt dort Clips, Szenen, Stummschaltungen, Tempo, Tonart und
+Parameterfahrten:
+
+```
+tempo 122
+key C minor
+swing 12
+
+bar 1    scene Intro
+bar 5    unmute snare
+bar 9    scene Groove
+bar 13   bass.filter.freq 400 -> 2600 over 4 bars
+bar 17   scene Hook
+bar 25   scene Break
+bar 33   end
+```
+
+| Befehl | Bedeutung |
+| --- | --- |
+| `tempo 124` | Tempo setzen (40–240) |
+| `key C minor` | Tonart; auch `key F#2 dorian`. Skalen: minor, major, dorian, phrygian, pentatonic, chromatic |
+| `swing 12` | Swing in Prozent (0–60) |
+| `bar 17` | alles Folgende gilt ab diesem Takt |
+| `kick = B` | Clip einer Spur setzen (A–D) |
+| `scene Hook` | Szene aufrufen |
+| `mute lead bass` | Spuren stumm schalten, `unmute` umgekehrt |
+| `bass.filter.freq 300 -> 4000 over 8 bars` | Parameter über mehrere Takte fahren |
+| `end` | Wiedergabe anhalten |
+
+Ziele für Fahrten: `spur.volume`, `spur.gate`, `spur.source.<parameter>`,
+`spur.<effekt>.<parameter>`, `master.volume`. Mehrere Befehle je Zeile mit
+Komma trennen, `#` leitet einen Kommentar ein (mitten im Wort nicht – `F#2`
+bleibt eine Note).
+
+**Der Plan gibt nicht den Ton an, er erinnert nur.** Das Script wirkt allein in
+dem Moment, in dem eines seiner Ereignisse fällig ist. Wer zwischendurch von
+Hand umschaltet, bleibt umgeschaltet – bis das Script das nächste Mal etwas zu
+dieser Spur sagt. Improvisieren und Wiedereinsteigen kostet also nichts, und
+die Live-Ansicht zeigt unter dem Streifen die nächsten drei Ereignisse mit
+Countdown.
+
+Fehler melden Zeile und Grund und nennen, was stattdessen möglich gewesen wäre
+(„Unbekannte Spur ‚drums' – vorhanden: Kick, Snare, HiHat, Bass, Lead"). Eine
+Sprache ohne brauchbare Fehlermeldungen ist auf der Bühne wertlos.
+
+Bekannte Grenze: Während eine Fahrt läuft, bewegen sich die Regler im
+Klang-Reiter nicht mit – der Wert dahinter ändert sich trotzdem.
 
 ## Clips als Text
 
@@ -142,6 +195,8 @@ js/
   pattern.js     Clip ⇄ Text
   sequencer.js   Raster, Clips, Spielkopf
   live.js        Streifen mit Vorschau, Szenen, Pads
+  script.js      Set-Script: Parser und Ausführung
+  scriptview.js  Editor mit Fehlermeldungen
   rack.js        Klangkette der ausgewählten Spur
   keyboard.js    Bildschirm- und Computertastatur
   app.js         Verdrahtung, Persistenz, Transport-Bedienung
@@ -163,7 +218,7 @@ Tonartwechsel das laufende Set, und derselbe Clip passt in jeden Kontext.
 
 ## Tests
 
-Vier Playwright-Tests laufen headless gegen einen eingebauten Mini-Webserver:
+Fünf Playwright-Tests laufen headless gegen einen eingebauten Mini-Webserver:
 
 ```bash
 npm install
@@ -176,6 +231,8 @@ npm test
   Parametern auf Minimum bzw. Maximum.
 - `tests/sequencer.mjs` misst die Abstände der geplanten Noten, prüft
   quantisierte Clipwechsel, Skalenrechnung, Textformat und Stimmenfreigabe.
+- `tests/script.mjs` prüft den Parser samt Fehlermeldungen, das Auslösen an
+  Taktgrenzen, Parameterfahrten und dass Handgriffe den Plan überstimmen.
 - `tests/live.mjs` prüft die Live-Ansicht (Streifen, Vorschau, Szenen, Pads),
   die Audio-Absicherung (Entsperren, Testton, Erholung nach Unterbrechung),
   dass „Start" schon als allererste Geste greift und dabei nichts verrutscht,
@@ -185,26 +242,11 @@ npm test
 
 ## Fahrplan
 
-**1. Set-Script.** Eine Textdatei beschreibt den Ablauf, dieselbe Notation wie
-bei den Clips, eine Zeile je Ereignis:
-
-```
-tempo 124  ·  tonart C moll
-
-takt 1    drums=A  bass=A
-takt 9    + lead=A
-takt 17   drums=B  filter.cutoff 300 → 4000 über 8 takte
-takt 33   alle aus außer drums
-```
-
-Das Script ist der Plan, nicht der Zwang: Es läuft mit, zeigt in der
-Live-Ansicht die nächsten Ereignisse an – und jeder Eingriff von Hand hat
-Vorrang. Wer improvisiert, steigt einfach wieder ein. Das nimmt die Angst vor
-dem Blackout auf der Bühne, ohne das Set festzunageln.
-
-**2. Danach denkbar:** Modulationsquellen (LFO auf beliebige Parameter),
-Aufnahme als WAV, MIDI-Eingang für Controller mit echten Knöpfen, und ein
-Worker-Timer, damit der Takt auch in Hintergrund-Tabs nicht stolpert.
+Sequenzer, Live-Ansicht und Set-Script stehen. Denkbar als Nächstes:
+Modulationsquellen (LFO auf beliebige Parameter), Aufnahme als WAV,
+MIDI-Eingang für Controller mit echten Knöpfen, Script-Marken direkt im
+Streifen, und ein Worker-Timer, damit der Takt auch in Hintergrund-Tabs nicht
+stolpert.
 
 ## Lizenz
 

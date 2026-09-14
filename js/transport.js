@@ -9,10 +9,11 @@ const INTERVAL_MS = 25;
 const LOOKAHEAD = 0.15;
 
 export class Transport {
-  constructor(engine, getProject, { onClipChange = () => {} } = {}) {
+  constructor(engine, getProject, { onClipChange = () => {}, onBar = () => {} } = {}) {
     this.engine = engine;
     this.getProject = getProject;
     this.onClipChange = onClipChange;
+    this.onBar = onBar;
     this.playing = false;
     this.step = 0;
     this.nextTime = 0;
@@ -66,6 +67,9 @@ export class Transport {
 
   scheduleStep(step, time) {
     const project = this.project;
+    // Erst das Script, dann die vorgemerkten Wechsel: was von Hand kommt,
+    // ueberstimmt den Plan.
+    if (step % STEPS_PER_BAR === 0) this.onBar(step / STEPS_PER_BAR + 1, time);
     const quantize = Math.max(1, project.quantize);
     if (step % quantize === 0) this.applyQueued();
 

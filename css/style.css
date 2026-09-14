@@ -598,6 +598,86 @@ button.small { padding: 5px 10px; font-size: 12px; }
 }
 .pad.mute.on { background: var(--danger); border-color: var(--danger); color: #0d0f14; }
 
+/* Kommende Script-Ereignisse unter dem Streifen */
+.script-next {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.script-next[hidden] { display: none; }
+.script-step {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-family: ui-monospace, Menlo, monospace;
+}
+.script-step.soon { color: var(--text); border: 1px solid var(--accent); }
+.script-step b { color: var(--accent); font-weight: 600; }
+.script-step i { color: var(--accent-2); font-style: normal; }
+
+/* ------------------------------------------------------------- Script */
+
+.script { display: grid; gap: 12px; max-width: 940px; }
+.script-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 13px;
+  cursor: pointer;
+}
+.switch input { accent-color: var(--accent); width: 16px; height: 16px; }
+.script-status { font-size: 12px; color: var(--muted); }
+.script-status.good { color: var(--accent); }
+.script-status.bad { color: var(--danger); }
+
+.script-text {
+  width: 100%;
+  min-height: 300px;
+  padding: 14px;
+  color: var(--text);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: 13px/1.7 ui-monospace, "SF Mono", Menlo, monospace;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.script-errors {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  background: rgba(255, 107, 122, .08);
+  font-size: 13px;
+}
+.script-errors[hidden] { display: none; }
+.script-errors p { margin: 0; }
+.script-errors b { color: var(--danger); }
+
+.script-help { font-size: 13px; color: var(--muted); }
+.script-help summary { cursor: pointer; color: var(--accent); }
+.script-help table { border-collapse: collapse; margin: 10px 0; }
+.script-help td { padding: 4px 14px 4px 0; vertical-align: top; }
+.script-help code {
+  padding: 1px 6px;
+  background: var(--panel-2);
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text);
+}
+
 /* ----------------------------------------------------------- Sequenzer */
 
 .seq { display: grid; gap: 10px; }

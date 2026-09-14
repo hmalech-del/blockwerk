@@ -5,6 +5,8 @@ import { Transport } from './transport.js';
 import { Rack, renderPalette } from './rack.js';
 import { Sequencer } from './sequencer.js';
 import { Live } from './live.js';
+import { ScriptRunner } from './script.js';
+import { ScriptView } from './scriptview.js';
 import { Keyboard } from './keyboard.js';
 import { parseSteps, stepsToText } from './pattern.js';
 import {
@@ -29,6 +31,18 @@ const transport = new Transport(engine, () => project, {
   onClipChange: () => {
     sequencer.render();
     live.refresh();
+  },
+  onBar: (bar, time) => script.onBar(bar, time),
+});
+
+const script = new ScriptRunner({
+  getProject: () => project,
+  engine,
+  transport,
+  onEvent: () => {
+    sequencer.render();
+    live.refresh();
+    syncControls();
   },
 });
 
@@ -186,6 +200,25 @@ const live = new Live($('#live'), {
   },
 });
 
+const scriptView = new ScriptView($('#script'), {
+  getProject: () => project,
+  runner: () => script,
+  onDraft: (text) => {
+    project.script.text = text;
+    save();
+  },
+  onApply: (text) => {
+    project.script.text = text;
+    script.compile();
+    save();
+  },
+  onToggle: (enabled) => {
+    project.script.enabled = enabled;
+    script.compile();
+    save();
+  },
+});
+
 const keyboard = new Keyboard($('#keyboard'), {
   onNoteOn: (midi) => {
     if (userSuspended) return;
@@ -251,6 +284,8 @@ function useProject(next) {
   sequencer.render();
   live.render();
   rack.render();
+  script.compile();
+  scriptView.render();
   save();
 }
 
@@ -297,6 +332,7 @@ $('#play').addEventListener('click', async () => {
   } else {
     userSuspended = false;
     await ensureAudio();
+    script.reset();
     transport.start();
   }
   updatePlay();
@@ -441,6 +477,7 @@ for (const tab of document.querySelectorAll('[data-view]')) {
     currentView = view;
     if (view === 'sound') rack.render();
     if (view === 'live') live.render();
+    if (view === 'script') scriptView.render();
   });
 }
 
@@ -498,15 +535,18 @@ syncControls();
 sequencer.render();
 live.render();
 rack.render();
+script.compile();
+scriptView.render();
 updatePower();
 updatePlay();
 
-window.blockwerk = { engine, transport, project: () => project, sequencer, live, rack, keyboard, CLIP_SLOTS };
+window.blockwerk = { engine, transport, project: () => project, sequencer, live, rack, script, scriptView, keyboard, CLIP_SLOTS };
 
 (function frame() {
+  if (transport.playing) script.updateRamps(transport.position());
   if (currentView === 'sound') rack.setLevel(engine.running ? engine.level() : 0);
   if (currentView === 'seq') sequencer.tick();
-  if (currentView === 'live') live.tick();
+  if (currentView === 'live') live.tick(script);
   const bar = $('#position');
   if (bar) {
     const pos = transport.position();
