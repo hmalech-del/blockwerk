@@ -27,7 +27,7 @@ export function formatValue(spec, value) {
   if (spec.unit === 'Hz') return value >= 1000 ? `${(value / 1000).toFixed(2)} kHz` : `${Math.round(value)} Hz`;
   if (spec.unit === 's') return value < 1 ? `${Math.round(value * 1000)} ms` : `${value.toFixed(2)} s`;
   if (spec.unit) return `${value.toFixed(0)} ${spec.unit}`;
-  return value.toFixed(2);
+  return spec.step === 1 ? String(Math.round(value)) : value.toFixed(2);
 }
 
 // Spureigene Regler, die nicht aus einem Audiomodul kommen.
@@ -77,12 +77,25 @@ function blockMarkup({ scope, id, title, kind, hint, body, controls = '', color 
 export class Rack {
   constructor(el, hooks) {
     this.el = el;
-    this.hooks = hooks; // getTrack, getProject, onStructure, onParam, onSourceType
+    this.hooks = hooks; // getTrack, getProject, getSelected, onSelectTrack, onStructure, onParam, onSourceType
+    this.picker = document.querySelector('#track-picker');
     this.dragId = null;
     this.bind();
   }
 
+  // Ohne das müsste man zum Spurwechsel in einen anderen Reiter und zurück.
+  renderPicker() {
+    if (!this.picker) return;
+    const selected = this.hooks.getSelected();
+    this.picker.innerHTML = this.hooks.getProject().tracks.map((track) => `
+      <button class="track-pick${track.id === selected ? ' on' : ''}"
+              data-act="pick" data-id="${track.id}" style="--track:${track.color}">
+        <span class="dot"></span>${track.name}
+      </button>`).join('');
+  }
+
   render() {
+    this.renderPicker();
     const track = this.hooks.getTrack();
     if (!track) {
       this.el.innerHTML = '<p class="empty">Keine Spur ausgewählt.</p>';
@@ -191,6 +204,11 @@ export class Rack {
 
     this.el.addEventListener('change', (e) => {
       if (e.target.dataset.act === 'source-type') this.hooks.onSourceType(e.target.value);
+    });
+
+    this.picker?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-act="pick"]');
+      if (btn) this.hooks.onSelectTrack(btn.dataset.id);
     });
 
     this.el.addEventListener('click', (e) => {

@@ -137,9 +137,24 @@ await page.evaluate(() => {
 await page.waitForTimeout(150);
 check('Regler und Quellenwechsel ohne Fehler', true);
 
+// Spurwechsel direkt im Klang-Reiter
+await page.click('.track-pick:nth-child(2)');
+await page.waitForTimeout(100);
+check('Spurauswahl im Klang-Reiter',
+  (await page.textContent('.block-track h3')).trim() === (await project()).tracks[1].name,
+  await page.textContent('.block-track h3'));
+await page.click('.track-pick:last-child');
+await page.waitForTimeout(100);
+
 await page.selectOption('#presets', '3'); // Kick
 await page.waitForTimeout(100);
 check('Klang-Preset angewendet', (await project()).tracks[5].source.type === 'perc');
+const octaveText = await page.evaluate(() => {
+  const label = [...document.querySelectorAll('.block-track .param')]
+    .find((el) => el.querySelector('.param-label')?.textContent.trim() === 'Oktave');
+  return label?.querySelector('.param-value')?.textContent.trim();
+});
+check('Ganzzahlige Regler ohne Nachkommastellen', /^-?\d+$/.test(octaveText || ''), octaveText);
 
 // Klaviatur spielt die gewählte Spur
 await page.click('[data-view="seq"]');

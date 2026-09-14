@@ -12,7 +12,7 @@
   <header class="topbar">
     <div class="brand">
       <span class="logo">▦</span>
-      <div>
+      <div class="brand-text">
         <h1>Blockwerk</h1>
         <p>Modularer Klangbaukasten</p>
       </div>
@@ -54,7 +54,6 @@
 
       <button id="test-tone" class="ghost" title="Kurzer Testton über den Master">Testton</button>
       <button id="panic" class="ghost" title="Alle Stimmen stoppen">Panik</button>
-      <output id="audio-state" class="audio-state"></output>
     </div>
   </header>
 
@@ -62,6 +61,7 @@
     <button data-view="live" class="on">Live</button>
     <button data-view="seq">Sequenzer</button>
     <button data-view="sound">Klang</button>
+    <output id="audio-state" class="audio-state" hidden></output>
     <div class="tabs-right">
       <label class="ctrl small">
         <span>Tonart</span>
@@ -83,8 +83,9 @@
     <section data-panel="sound" hidden>
       <div class="section-head">
         <h2>Signalkette der Spur</h2>
-        <p>Blöcke ziehen oder mit ◀ ▶ verschieben. Gilt für die im Sequenzer ausgewählte Spur.</p>
+        <p>Blöcke ziehen oder mit ◀ ▶ verschieben.</p>
       </div>
+      <div class="track-picker" id="track-picker"></div>
       <div class="rack" id="rack"></div>
 
       <div class="section-head">

@@ -10,6 +10,7 @@ import { CLIP_SLOTS, STEPS_PER_BAR } from './project.js';
 const VISIBLE_STEPS = 32;      // zwei Takte im Bild
 const PLAYHEAD_AT = 0.34;      // Spielkopf bei 34 % der Breite
 const ROW_HEIGHT = 30;
+const ROW_HEIGHT_FLAT = 24;    // flache Fenster: schmalere Spuren im Streifen
 const MAX_GUTTER = 88;         // Platz für die Spurnamen im Streifen
 
 export class Live {
@@ -31,7 +32,8 @@ export class Live {
     const project = this.project;
 
     const scenes = project.scenes.map((scene, i) => `
-      <button class="scene" data-act="scene" data-index="${i}">
+      <button class="scene" data-act="scene" data-index="${i}" title="Taste ${i + 1}">
+        ${i < 9 ? `<span class="scene-key">${i + 1}</span>` : ''}
         <span>${scene.name}</span>
         ${this.editScenes ? '<i class="scene-del" data-act="scene-del" data-index="' + i + '">✕</i>' : ''}
       </button>`).join('');
@@ -75,10 +77,14 @@ export class Live {
     );
   }
 
+  get rowHeight() {
+    return window.innerHeight < 720 ? ROW_HEIGHT_FLAT : ROW_HEIGHT;
+  }
+
   resizeCanvas() {
     const rows = this.project.tracks.length;
     const cssWidth = this.canvas.clientWidth;
-    const cssHeight = Math.max(90, rows * ROW_HEIGHT + 24);
+    const cssHeight = Math.max(80, rows * this.rowHeight + 20);
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     if (this.canvas.style.height !== `${cssHeight}px`) this.canvas.style.height = `${cssHeight}px`;
     const w = Math.round(cssWidth * dpr);
@@ -139,9 +145,10 @@ export class Live {
     ctx.fillStyle = 'rgba(122, 162, 255, .05)';
     ctx.fillRect(playheadX, 12, width - playheadX, height - 18);
 
+    const rowHeight = this.rowHeight;
     project.tracks.forEach((track, row) => {
-      const y = 16 + row * ROW_HEIGHT;
-      const barH = ROW_HEIGHT - 12;
+      const y = 14 + row * rowHeight;
+      const barH = rowHeight - 10;
 
       ctx.fillStyle = 'rgba(232, 236, 245, .62)';
       ctx.font = '11px ui-monospace, Menlo, monospace';

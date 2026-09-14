@@ -20,6 +20,23 @@ python3 -m http.server 8080
 
 Alternativ über GitHub Pages veröffentlichen (Settings → Pages → Branch `main`, Ordner `/`).
 
+## Auf Laptop und Tablet
+
+Getestet und gemessen von 390 px (iPhone) bis 1920 px, und bei flachen Fenstern
+bis hinunter zu 620 px Höhe:
+
+- Die Transportleiste bleibt **einzeilig**; unter 1700 px rücken die
+  Bedienelemente enger zusammen, unter 1600 px weicht der Schriftzug. Höhe ist
+  auf einem Laptop knapper als Breite.
+- Ab 1100 px Breite stehen die **Szenen in einer festen Spalte rechts** neben
+  den Pads – ortsfest heißt auffindbar, ohne hinzusehen.
+- **Tastenkürzel:** Leertaste startet und stoppt, `1`–`9` rufen Szenen auf,
+  `←` / `→` wechseln die Oktave der Klaviatur.
+- Nichts verschiebt sich beim ersten Tippen: Knöpfe mit wechselnder
+  Beschriftung haben feste Breiten, die Statusanzeige sitzt außerhalb der
+  Transportleiste. (Vorher sprang die Leiste 87 px zur Seite – der erste Klick
+  auf „Start" landete dadurch auf dem Nachbarknopf und tat nichts.)
+
 ## Kein Ton?
 
 1. **Stummschalter am Gerät** – auf dem iPhone schaltet der Schalter am Rand
@@ -160,8 +177,9 @@ npm test
 - `tests/sequencer.mjs` misst die Abstände der geplanten Noten, prüft
   quantisierte Clipwechsel, Skalenrechnung, Textformat und Stimmenfreigabe.
 - `tests/live.mjs` prüft die Live-Ansicht (Streifen, Vorschau, Szenen, Pads),
-  die Audio-Absicherung (Entsperren, Testton, Erholung nach Unterbrechung) und
-  dass auf 390 px Breite nichts waagerecht überläuft.
+  die Audio-Absicherung (Entsperren, Testton, Erholung nach Unterbrechung),
+  dass „Start" schon als allererste Geste greift und dabei nichts verrutscht,
+  und dass weder auf 1440 × 790 noch auf 390 px etwas überläuft.
 - `tests/ui-smoke.mjs` bedient die Oberfläche auf 1280 × 800 (10-Zoll-Tablet):
   Schritte setzen, ziehen, Clips, Spuren, Effekte, Textmodus, Persistenz.
 

@@ -71,6 +71,17 @@ kbd {
 .brand h1 { font-size: 17px; letter-spacing: .3px; }
 .brand p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
 
+/* Auf Laptops ist die Hoehe knapp, nicht die Breite: lieber der Schriftzug
+   weg als eine zweite Zeile Bedienelemente. */
+@media (max-width: 1600px) {
+  .brand-text { display: none; }
+}
+@media (max-width: 900px) {
+  .brand { display: none; }
+}
+
+
+
 .transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
 .ctrl {
@@ -106,6 +117,10 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 }
 
 .power {
+  /* Feste Breite: "Audio starten" und "Audio läuft" sind unterschiedlich
+     lang – ohne das springt beim ersten Tippen die halbe Leiste zur Seite
+     und der Klick landet auf dem Nachbarknopf. */
+  min-width: 146px;
   background: linear-gradient(140deg, var(--accent), var(--accent-2));
   color: #0d0f14;
   font-weight: 600;
@@ -362,6 +377,20 @@ footer {
   text-align: center;
 }
 
+/* Spurauswahl über der Klangkette */
+.track-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.track-pick {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  font-size: 13px;
+  background: var(--panel);
+  color: var(--muted);
+}
+.track-pick .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--track); }
+.track-pick.on { color: var(--text); border-color: var(--track); }
+
 /* --------------------------------------------------------------- Reiter */
 
 .tabs {
@@ -397,7 +426,7 @@ button.small { padding: 5px 10px; font-size: 12px; }
 
 .play-group { display: flex; align-items: center; gap: 8px; }
 .play {
-  min-width: 92px;
+  min-width: 108px;
   font-weight: 600;
   border-color: var(--accent-2);
   color: var(--accent-2);
@@ -406,6 +435,8 @@ button.small { padding: 5px 10px; font-size: 12px; }
 .position {
   display: flex;
   align-items: center;
+  justify-content: center;
+  min-width: 74px;
   gap: 7px;
   padding: 6px 12px;
   border: 1px solid var(--line);
@@ -434,6 +465,7 @@ button.small { padding: 5px 10px; font-size: 12px; }
 }
 
 .audio-state {
+  margin-left: 12px;
   padding: 5px 10px;
   border-radius: 999px;
   background: rgba(255, 107, 122, .14);
@@ -451,6 +483,27 @@ button.small { padding: 5px 10px; font-size: 12px; }
 /* ---------------------------------------------------------- Live-Ansicht */
 
 .live { display: grid; gap: 14px; }
+
+/* Ab Laptopbreite steht die Szenenspalte fest rechts – ortsfest heisst
+   auffindbar, ohne hinzusehen. */
+@media (min-width: 1100px) {
+  .live {
+    grid-template-columns: minmax(0, 1fr) 200px;
+    grid-template-areas:
+      "strip strip"
+      "pads scenes";
+    align-items: start;
+  }
+  .strip-wrap { grid-area: strip; }
+  .pads { grid-area: pads; }
+  .scene-bar {
+    grid-area: scenes;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .scene-bar .scene { width: 100%; }
+}
 
 .strip-wrap {
   position: relative;
@@ -472,8 +525,19 @@ button.small { padding: 5px 10px; font-size: 12px; }
 .next-label { color: var(--accent); font-variant-numeric: tabular-nums; }
 
 .scene-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.scene-key {
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font: 11px ui-monospace, Menlo, monospace;
+}
 .scene {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
   padding: 10px 16px;
   font-size: 14px;
   font-weight: 600;
@@ -500,9 +564,11 @@ button.small { padding: 5px 10px; font-size: 12px; }
 .pads { display: grid; gap: 6px; }
 .pad-row {
   display: grid;
-  grid-template-columns: minmax(74px, 168px) repeat(5, minmax(46px, 1fr));
+  /* Pads bleiben fingergross, werden aber nicht albern breit. */
+  grid-template-columns: minmax(74px, 240px) repeat(5, minmax(46px, 132px));
   gap: 6px;
   align-items: stretch;
+  justify-content: start;
 }
 .pad-name {
   display: flex;
@@ -640,6 +706,11 @@ button.small { padding: 5px 10px; font-size: 12px; }
 .cell.on { border-color: var(--track); }
 .cell.accent { background: var(--track); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .5); }
 .cell.now { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (hover: hover) {
+  .cell:hover { border-color: var(--accent-2); }
+  .pad:not(.empty):hover { border-color: var(--accent); color: var(--text); }
+  .pad.active:hover { color: #0d0f14; }
+}
 .cell .deg {
   font: 600 11px ui-monospace, Menlo, monospace;
   color: rgba(13, 15, 20, .85);
@@ -722,4 +793,27 @@ button.small { padding: 5px 10px; font-size: 12px; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+}
+
+/* Kompaktmodus: gleiche Bedienelemente, weniger Luft – so bleibt die
+   Transportleiste auf Laptops eine einzige Zeile. */
+@media (max-width: 1700px) {
+  .ctrl { gap: 6px; padding: 3px 8px; font-size: 11px; }
+  .ctrl output { min-width: 34px; }
+  .ctrl input[type="range"] { width: 68px; }
+  .ctrl input[type="number"] { width: 52px; }
+  .topbar { gap: 10px; }
+  .transport { gap: 6px; }
+  .transport > button { padding: 7px 10px; font-size: 14px; }
+  .play { min-width: 100px; }
+}
+
+/* Flache Fenster (13-Zoll-Notebook mit Lesezeichenleiste): Ränder kürzen,
+   damit Streifen und Pads ohne Scrollen sichtbar bleiben. */
+@media (max-height: 720px) {
+  main { padding-top: 10px; gap: 16px; }
+  .tabs { padding-top: 6px; padding-bottom: 6px; }
+  .live { gap: 10px; }
+  .pad, .pad-name { padding-top: 8px; padding-bottom: 8px; }
+  .strip-wrap { padding: 6px 10px 4px; }
 }

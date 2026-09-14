@@ -62,6 +62,14 @@ function save() {
 
 const rack = new Rack($('#rack'), {
   getTrack: selectedTrack,
+  getProject: () => project,
+  getSelected: () => selectedId,
+  onSelectTrack: (id) => {
+    selectedId = id;
+    rack.render();
+    sequencer.render();
+    save();
+  },
   onStructure: ({ light = false } = {}) => {
     engine.sync();
     if (!light) rack.render();
@@ -219,7 +227,8 @@ function updateAudioState() {
     interrupted: 'Audio unterbrochen – antippen',
     closed: 'Audio geschlossen',
   };
-  const text = state ? (labels[state] ?? state) : 'Audio aus';
+  // Vor der ersten Geste gibt es nichts zu melden – der Power-Knopf sagt es.
+  const text = state ? (labels[state] ?? state) : '';
   el.textContent = text;
   el.hidden = !text;
 }
@@ -435,11 +444,27 @@ for (const tab of document.querySelectorAll('[data-view]')) {
   });
 }
 
-// Leertaste startet und stoppt – die wichtigste Taste im Live-Betrieb.
+// Tastenkürzel – am Laptop schneller und treffsicherer als jede Fläche.
 window.addEventListener('keydown', (e) => {
-  if (e.code !== 'Space' || e.target.matches('input, textarea, select')) return;
-  e.preventDefault();
-  $('#play').click();
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.matches('input, textarea, select')) return;
+
+  // Leertaste startet und stoppt – die wichtigste Taste im Live-Betrieb.
+  if (e.code === 'Space') {
+    e.preventDefault();
+    $('#play').click();
+    return;
+  }
+
+  // Ziffern rufen Szenen auf, ohne dass man die Maus suchen muss.
+  const digit = e.code.match(/^Digit([1-9])$/);
+  if (digit) {
+    const scene = project.scenes[Number(digit[1]) - 1];
+    if (!scene) return;
+    e.preventDefault();
+    transport.queueScene(scene);
+    live.refresh();
+  }
 });
 
 // Erste Nutzergeste irgendwo auf der Seite startet den AudioContext – außer

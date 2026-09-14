@@ -132,6 +132,58 @@ const recovered = await page.evaluate(async () => {
 check('Nach Unterbrechung wieder aufnehmbar',
   recovered.suspended === 'suspended' && recovered.after === 'running');
 
+// --------------------------------------------- Erste Geste und Standfestigkeit
+
+// Der haeufigste Einstieg ueberhaupt: Seite oeffnen, Start druecken. Wenn sich
+// dabei die Leiste verschiebt, landet der Klick auf dem Nachbarknopf.
+const fresh = await browser.newPage({ viewport: { width: 1440, height: 790 } });
+const freshErrors = [];
+fresh.on('pageerror', (e) => freshErrors.push('pageerror: ' + e.message));
+await fresh.goto(server.url, { waitUntil: 'networkidle' });
+await fresh.evaluate(() => localStorage.clear());
+await fresh.reload({ waitUntil: 'networkidle' });
+
+const boxOf = async (sel) => (await (await fresh.$(sel)).boundingBox());
+const playBefore = await boxOf('#play');
+await fresh.click('#play');
+await fresh.waitForTimeout(500);
+const playAfter = await boxOf('#play');
+
+check('Start als allererste Geste startet den Transport',
+  await fresh.evaluate(() => window.blockwerk.transport.playing));
+check('Bedienelemente springen beim ersten Tippen nicht',
+  Math.abs(playAfter.x - playBefore.x) < 2 && Math.abs(playAfter.width - playBefore.width) < 2,
+  `${Math.round(playAfter.x - playBefore.x)} px Versatz`);
+
+// Laptopformat: Streifen und Pads muessen ohne Scrollen sichtbar sein
+const laptop = await fresh.evaluate(() => {
+  const pads = document.querySelector('.pads').getBoundingClientRect();
+  const scenes = document.querySelector('.scene-bar').getBoundingClientRect();
+  return {
+    padsBottom: Math.round(pads.bottom),
+    scenesRight: Math.round(scenes.right),
+    scenesBesidePads: scenes.left >= pads.right - 1,
+    header: Math.round(document.querySelector('.topbar').getBoundingClientRect().height),
+    overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+});
+check('Streifen und Pads passen aufs Laptop-Fenster', laptop.padsBottom <= 790,
+  `Pads enden bei ${laptop.padsBottom} px`);
+check('Kopfzeile bleibt einzeilig', laptop.header < 80, `${laptop.header} px`);
+check('Szenen stehen neben den Pads', laptop.scenesBesidePads);
+check('Kein waagerechtes Scrollen auf dem Laptop', laptop.overflowX <= 1);
+
+// Tastenkuerzel: Ziffer ruft die Szene auf
+await fresh.keyboard.press('Digit3');
+await fresh.waitForTimeout(150);
+const viaKey = await fresh.evaluate(() => {
+  const p = window.blockwerk.project();
+  return p.tracks.some((t) => t.queued !== null);
+});
+check('Ziffer ruft die Szene auf', viaKey);
+freshErrors.forEach((e) => errors.push(e));
+await fresh.close();
+
 // ------------------------------------------------------------- Handyformat
 
 await page.setViewportSize({ width: 390, height: 844 });
