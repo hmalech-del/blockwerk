@@ -132,6 +132,71 @@ const recovered = await page.evaluate(async () => {
 check('Nach Unterbrechung wieder aufnehmbar',
   recovered.suspended === 'suspended' && recovered.after === 'running');
 
+// ------------------------------------------------ Zuverlaessigkeit der Szenen
+
+// Musiker tippen kurz VOR der Eins. Der Scheduler hat die Taktgrenze dann
+// schon verplant – ohne Gegenmassnahme kaeme der Wechsel einen Takt zu spaet.
+const reliability = await page.evaluate(async () => {
+  const { transport, project } = window.blockwerk;
+  const p = project();
+  p.tempo = 120;                      // ein Takt = 2 s
+  transport.start();
+  await new Promise((r) => setTimeout(r, 300));
+
+  const barMs = 2000;
+  const results = [];
+  for (let i = 0; i < 12; i++) {
+    const phase = 0.75 + (i % 4) * 0.08;   // 75 %, 83 %, 91 %, 99 % des Takts
+    const barsNow = transport.position() / 16;
+    const target = Math.floor(barsNow) + 1 + phase;
+    await new Promise((r) => setTimeout(r, Math.max(0, (target - barsNow) * barMs)));
+
+    const scene = p.scenes[i % 2 ? 1 : 2];
+    const tapBar = transport.position() / 16;
+    transport.queueScene(scene);
+    const expected = p.tracks.map((t) => scene.slots[t.id] ?? t.clip).join('');
+    await new Promise((r) => setTimeout(r, (Math.ceil(tapBar + 0.001) - tapBar) * barMs + 250));
+    results.push({
+      phase: Math.round(phase * 100),
+      ok: p.tracks.map((t) => t.clip).join('') === expected,
+    });
+  }
+  transport.stop();
+  return { total: results.length, failed: results.filter((r) => !r.ok) };
+});
+check('Szenen greifen auch bei einem Tap kurz vor der Eins',
+  reliability.failed.length === 0,
+  `${reliability.total - reliability.failed.length}/${reliability.total} getroffen` +
+  (reliability.failed.length ? `, daneben bei ${reliability.failed.map((f) => f.phase + '%').join(', ')}` : ''));
+
+// ------------------------------------------------------------- Live-Regler
+
+const macros = await page.evaluate(async () => {
+  const { live, project } = window.blockwerk;
+  const p = project();
+  live.hooks.onMacroTarget(0, 'Bass.filter.freq');
+  live.render();
+  const macro = p.macros[0];
+  const slider = document.querySelector('.macro input[data-act="macro"]');
+  slider.value = '250';
+  slider.dispatchEvent(new Event('input', { bubbles: true }));
+  const freq = p.tracks[3].chain.find((b) => b.type === 'filter').params.freq;
+  return {
+    label: macro?.label,
+    min: macro?.min,
+    max: macro?.max,
+    freq: Math.round(freq),
+    shown: document.querySelector('.macro-value')?.textContent,
+    slots: document.querySelectorAll('.macro').length,
+  };
+});
+check('Live-Regler lässt sich grafisch belegen',
+  macros.label === 'Bass · Filter · Cutoff' && macros.min === 40 && macros.max === 16000,
+  `${macros.label}, ${macros.min}–${macros.max}`);
+check('Live-Regler wirkt auf den Parameter', macros.freq > 100 && macros.freq < 1000,
+  `${macros.freq} Hz, angezeigt ${macros.shown}`);
+check('Vier Reglerplätze vorhanden', macros.slots === 4);
+
 // --------------------------------------------- Erste Geste und Standfestigkeit
 
 // Der haeufigste Einstieg ueberhaupt: Seite oeffnen, Start druecken. Wenn sich

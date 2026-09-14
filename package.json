@@ -1,6 +1,6 @@
 {
   "name": "blockwerk",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Modularer Klangbaukasten im Browser: Sequenzer, Drum-Loops und frei verkettbare Klangbloecke.",
   "private": true,
   "type": "module",

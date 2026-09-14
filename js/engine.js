@@ -221,6 +221,16 @@ export class Engine {
     return record;
   }
 
+  // Nimmt eine vorausgeplante, noch nicht erklungene Stimme wieder zurueck.
+  cancel(trackId, record) {
+    const rt = this.tracks.get(trackId);
+    if (!rt || !rt.active.delete(record)) return false;
+    rt.held.delete(record.midi);
+    record.voice.kill(this.ctx.currentTime);
+    try { record.amp.disconnect(); } catch (e) { /* egal */ }
+    return true;
+  }
+
   noteOff(trackId, midi, when) {
     const rt = this.tracks.get(trackId);
     const record = rt?.held.get(midi);

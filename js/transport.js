@@ -18,6 +18,8 @@ export class Transport {
     this.step = 0;
     this.nextTime = 0;
     this.timer = null;
+    this.scheduled = [];   // vorausgeplante Stimmen, um sie zurueckholen zu koennen
+    this.stepTimes = new Map();
   }
 
   get project() {
@@ -34,6 +36,8 @@ export class Transport {
     this.playing = true;
     this.step = 0;
     this.nextTime = ctx.currentTime + 0.06;
+    this.scheduled = [];
+    this.stepTimes.clear();
     this.tick();
     this.timer = setInterval(() => this.tick(), INTERVAL_MS);
   }
@@ -63,6 +67,19 @@ export class Transport {
       this.step += 1;
       this.nextTime += this.stepDuration();
     }
+    this.forget(ctx.currentTime);
+  }
+
+  // Was erklungen ist, muss nicht mehr vorgehalten werden.
+  forget(now) {
+    if (this.scheduled.length > 64) {
+      this.scheduled = this.scheduled.filter((e) => e.time > now);
+    }
+    if (this.stepTimes.size > 64) {
+      for (const [step, time] of this.stepTimes) {
+        if (time < now - 0.5) this.stepTimes.delete(step);
+      }
+    }
   }
 
   scheduleStep(step, time) {
@@ -84,11 +101,41 @@ export class Transport {
       if (!cell || !cell.on) continue;
 
       const midi = degToMidi(cell.deg, project.root, project.scale) + track.octave * 12;
-      this.engine.noteOn(track.id, midi, time + swingOffset, {
+      const record = this.engine.noteOn(track.id, midi, time + swingOffset, {
         dur: Math.max(0.02, track.gate * stepDur),
         velocity: cell.on === 2 ? 1 : 0.68,
       });
+      if (record) this.scheduled.push({ step, time: time + swingOffset, trackId: track.id, record });
     }
+    this.stepTimes.set(step, time);
+  }
+
+  // Der Scheduler plant bis zu 150 ms voraus. Wer kurz vor der Eins tippt –
+  // und genau das tun Musiker – faende seinen Wechsel sonst erst einen Takt
+  // spaeter wieder. Also die schon verplanten, aber noch nicht erklungenen
+  // Schritte zuruecknehmen und ab der Grenze neu planen.
+  catchUp() {
+    if (!this.playing || !this.engine.ctx) return false;
+    const quantize = Math.max(1, this.project.quantize);
+    const boundary = Math.ceil((this.position() + 0.0001) / quantize) * quantize;
+    if (boundary >= this.step) return false;
+    return this.rewindTo(boundary);
+  }
+
+  rewindTo(step) {
+    const ctx = this.engine.ctx;
+    const time = this.stepTimes.get(step);
+    if (time === undefined || time <= ctx.currentTime + 0.005) return false;
+
+    for (let i = this.scheduled.length - 1; i >= 0; i--) {
+      const entry = this.scheduled[i];
+      if (entry.step < step) continue;
+      if (entry.time > ctx.currentTime + 0.002) this.engine.cancel(entry.trackId, entry.record);
+      this.scheduled.splice(i, 1);
+    }
+    this.step = step;
+    this.nextTime = time;
+    return true;
   }
 
   queueClip(trackId, slot) {
@@ -102,6 +149,7 @@ export class Transport {
     } else {
       track.queued = slot;
     }
+    this.catchUp();
     this.onClipChange();
   }
 
@@ -120,6 +168,7 @@ export class Transport {
         else track.mix.mute = mute;
       }
     }
+    this.catchUp();
     this.onClipChange();
   }
 

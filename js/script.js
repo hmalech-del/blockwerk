@@ -16,8 +16,9 @@
 //   bar 33   mute lead bass
 //   bar 49   end
 
-import { MODULES } from './modules.js';
-import { CLIP_SLOTS, STEPS_PER_BAR } from './project.js';
+import { MODULES, EFFECTS, defaultParams } from './modules.js';
+import { CLIP_SLOTS, STEPS_PER_BAR, uid } from './project.js';
+import { parseSteps } from './pattern.js';
 
 const SCALE_WORDS = {
   minor: 'minor', min: 'minor', moll: 'minor',
@@ -45,6 +46,18 @@ export function parseScript(text, project) {
   const trackByName = new Map(project.tracks.map((t) => [t.name.trim().toLowerCase(), t]));
   const sceneByName = new Map(project.scenes.map((s) => [s.name.trim().toLowerCase(), s]));
   const trackList = () => project.tracks.map((t) => t.name).join(', ') || '—';
+
+  // Vorlauf: Effekte, die das Script selbst anlegt, gelten beim Pruefen als
+  // vorhanden – sonst koennte man einen frisch hinzugefuegten Effekt nicht
+  // im selben Script regeln.
+  const willExist = new Set();
+  for (const raw of lines) {
+    const match = /(?:^|[\s,])add\s+(\S+)\s+(\S+)/i.exec(raw.replace(/(^|\s)(#|;|\/\/).*$/, ''));
+    if (!match) continue;
+    const track = trackByName.get(match[1].toLowerCase());
+    const type = match[2].toLowerCase();
+    if (track && MODULES[type]?.kind === 'fx') willExist.add(`${track.id}|${type}`);
+  }
 
   let currentBar = 1;
 
@@ -120,6 +133,62 @@ export function parseScript(text, project) {
       return events.push({ bar, line: lineNo, type: 'mute', value: head === 'mute', trackIds: ids, text: command });
     }
 
+    // Effekte zur Laufzeit an- und abbauen. Die Regler dafuer erscheinen
+    // automatisch im Klang-Reiter, weil der die Kette aus dem Modell zeichnet.
+    if (head === 'add' || head === 'remove') {
+      const track = trackByName.get(String(words[1] ?? '').toLowerCase());
+      if (!track) return fail(lineNo, `Unbekannte Spur „${words[1] ?? ''}“ – vorhanden: ${trackList()}.`);
+      const type = String(words[2] ?? '').toLowerCase();
+      if (!MODULES[type] || MODULES[type].kind !== 'fx') {
+        return fail(lineNo, `Unbekannter Effekt „${words[2] ?? ''}“ – möglich: ${EFFECTS.map((m) => m.id).join(', ')}.`);
+      }
+      return events.push({ bar, line: lineNo, type: head === 'add' ? 'addFx' : 'removeFx', trackId: track.id, fx: type, text: command });
+    }
+
+    if (head === 'bypass') {
+      const track = trackByName.get(String(words[1] ?? '').toLowerCase());
+      if (!track) return fail(lineNo, `Unbekannte Spur „${words[1] ?? ''}“ – vorhanden: ${trackList()}.`);
+      const type = String(words[2] ?? '').toLowerCase();
+      if (!MODULES[type] || MODULES[type].kind !== 'fx') {
+        return fail(lineNo, `Unbekannter Effekt „${words[2] ?? ''}“ – möglich: ${EFFECTS.map((m) => m.id).join(', ')}.`);
+      }
+      const state = String(words[3] ?? 'on').toLowerCase();
+      if (!['on', 'off'].includes(state)) return fail(lineNo, `„bypass“ endet auf on oder off.`);
+      return events.push({ bar, line: lineNo, type: 'bypassFx', trackId: track.id, fx: type, value: state === 'on', text: command });
+    }
+
+    // Muster direkt aus dem Script: pattern kick A = x . . . x . . .
+    if (head === 'pattern') {
+      const match = /^pattern\s+(\S+)\s+([a-dA-D])\s*=\s*(.+)$/i.exec(command);
+      if (!match) return fail(lineNo, `Erwartet: pattern <spur> <slot> = x . . . …`);
+      const track = trackByName.get(match[1].toLowerCase());
+      if (!track) return fail(lineNo, `Unbekannte Spur „${match[1]}“ – vorhanden: ${trackList()}.`);
+      const slot = CLIP_SLOTS.indexOf(match[2].toUpperCase());
+      const tokens = match[3].trim().split(/[\s|]+/).filter(Boolean).length;
+      const bars = tokens > 32 ? 4 : tokens > 16 ? 2 : 1;
+      if (!tokens) return fail(lineNo, `Das Muster ist leer.`);
+      return events.push({
+        bar, line: lineNo, type: 'pattern', trackId: track.id, slot, bars,
+        steps: parseSteps(match[3], bars), text: command,
+      });
+    }
+
+    // Live-Regler belegen: control 1 bass.filter.freq [300 4000] [as Name]
+    if (head === 'control') {
+      const match = /^control\s+([1-8])\s+(\S+)(?:\s+(-?[\d.]+)\s+(-?[\d.]+))?(?:\s+as\s+(.+))?$/i.exec(command);
+      if (!match) return fail(lineNo, `Erwartet: control <1-8> <ziel> [min max] [as Name]`);
+      const target = resolveTarget(match[2], trackByName, willExist);
+      if (target.error) return fail(lineNo, target.error);
+      return events.push({
+        bar, line: lineNo, type: 'control', slot: Number(match[1]) - 1,
+        path: match[2], target: target.value,
+        min: match[3] === undefined ? null : Number(match[3]),
+        max: match[4] === undefined ? null : Number(match[4]),
+        label: match[5]?.trim() || match[2],
+        text: command,
+      });
+    }
+
     if (head === 'end' || head === 'stop') {
       return events.push({ bar, line: lineNo, type: 'end', text: command });
     }
@@ -135,7 +204,7 @@ export function parseScript(text, project) {
 
     const ramp = RAMP.exec(command);
     if (ramp) {
-      const target = resolveTarget(ramp[1], trackByName);
+      const target = resolveTarget(ramp[1], trackByName, willExist);
       if (target.error) return fail(lineNo, target.error);
       const bars = ramp[4] === undefined ? 0 : Number(ramp[4]);
       return events.push({
@@ -152,7 +221,7 @@ export function parseScript(text, project) {
 }
 
 // „bass.filter.freq“, „bass.volume“, „bass.source.detune“, „master.volume“
-function resolveTarget(path, trackByName) {
+function resolveTarget(path, trackByName, willExist = new Set()) {
   const parts = path.split('.');
   if (parts[0].toLowerCase() === 'master') {
     if (parts[1]?.toLowerCase() !== 'volume' || parts.length !== 2) {
@@ -188,7 +257,9 @@ function resolveTarget(path, trackByName) {
       return { error: `Unbekannter Effekt „${second}“.` };
     }
     const block = track.chain.find((b) => b.type === type);
-    if (!block) return { error: `Spur „${track.name}“ hat keinen Effekt „${second}“ in der Kette.` };
+    if (!block && !willExist.has(`${track.id}|${type}`)) {
+      return { error: `Spur „${track.name}“ hat keinen Effekt „${second}“ in der Kette – mit „add ${track.name} ${type}“ lässt er sich anlegen.` };
+    }
     const spec = MODULES[type].params.find((p) => p.id.toLowerCase() === param.toLowerCase());
     if (!spec) {
       const ids = MODULES[type].params.map((p) => p.id).join(', ');
@@ -203,14 +274,16 @@ function resolveTarget(path, trackByName) {
 // ----------------------------------------------------------------- Spielen
 
 export class ScriptRunner {
-  constructor({ getProject, engine, transport, onEvent = () => {} }) {
+  constructor({ getProject, engine, transport, onEvent = () => {}, onStructure = () => {} }) {
     this.getProject = getProject;
     this.engine = engine;
     this.transport = transport;
     this.onEvent = onEvent;
+    this.onStructure = onStructure;
     this.events = [];
     this.errors = [];
     this.done = new Set();
+    this.firedBars = new Set();
     this.lastFired = null;
   }
 
@@ -232,6 +305,7 @@ export class ScriptRunner {
 
   reset() {
     this.done.clear();
+    this.firedBars.clear();
     this.lastFired = null;
   }
 
@@ -239,6 +313,10 @@ export class ScriptRunner {
   // Zeitstempel, damit Clipwechsel auf den Schlag sitzen.
   onBar(bar, time) {
     if (!this.enabled) return;
+    // Ein Takt kann neu geplant werden (siehe Transport.rewindTo) – seine
+    // Ereignisse duerfen dann nicht ein zweites Mal feuern.
+    if (this.firedBars.has(bar)) return;
+    this.firedBars.add(bar);
     for (const event of this.events) {
       if (event.bar !== bar || event.type === 'ramp') continue;
       this.fire(event, time);
@@ -288,6 +366,45 @@ export class ScriptRunner {
         }
         this.engine.applyMix();
         break;
+      case 'addFx': {
+        const track = project.tracks.find((t) => t.id === event.trackId);
+        if (!track || track.chain.some((b) => b.type === event.fx)) break;
+        track.chain.push({ id: uid('b'), type: event.fx, bypass: false, params: defaultParams(event.fx) });
+        this.onStructure();
+        break;
+      }
+      case 'removeFx': {
+        const track = project.tracks.find((t) => t.id === event.trackId);
+        const index = track ? track.chain.findIndex((b) => b.type === event.fx) : -1;
+        if (index < 0) break;
+        track.chain.splice(index, 1);
+        this.onStructure();
+        break;
+      }
+      case 'bypassFx': {
+        const track = project.tracks.find((t) => t.id === event.trackId);
+        const block = track?.chain.find((b) => b.type === event.fx);
+        if (!block) break;
+        block.bypass = event.value;
+        this.onStructure();
+        break;
+      }
+      case 'pattern': {
+        const track = project.tracks.find((t) => t.id === event.trackId);
+        if (!track) break;
+        track.clips[event.slot] = {
+          id: uid('c'),
+          bars: event.bars,
+          steps: event.steps.map((step) => ({ ...step })),
+        };
+        this.onStructure();
+        break;
+      }
+      case 'control': {
+        setMacro(project, event);
+        this.onStructure();
+        break;
+      }
       case 'end':
         // Erst nach diesem Takt anhalten, sonst verschluckt es den letzten Schlag.
         setTimeout(() => this.transport.stop(), Math.max(0, (time - this.engine.ctx.currentTime) * 1000));
@@ -368,3 +485,43 @@ export class ScriptRunner {
 }
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// Ein Live-Regler merkt sich Ziel, Bereich und Beschriftung; der Wert kommt
+// aus dem aktuellen Stand des Ziels.
+function setMacro(project, event) {
+  const spec = targetSpec(project, event.target);
+  project.macros = project.macros || [];
+  project.macros[event.slot] = {
+    label: event.label,
+    path: event.path,
+    target: event.target,
+    min: event.min ?? spec.min,
+    max: event.max ?? spec.max,
+  };
+}
+
+// Bereich und Art eines Ziels aus der Modul-Registry ableiten.
+export function targetSpec(project, target) {
+  if (target.kind === 'master') return { min: 0, max: 1, scale: null };
+  const track = project.tracks.find((t) => t.id === target.trackId);
+  if (!track) return { min: 0, max: 1, scale: null };
+  if (target.kind === 'track') {
+    return target.param === 'volume'
+      ? { min: 0, max: 1, scale: null }
+      : { min: 0.05, max: 4, scale: 'log' };
+  }
+  const type = target.kind === 'source' ? track.source.type : target.blockType;
+  const spec = MODULES[type]?.params.find((p) => p.id === target.param);
+  return spec ? { min: spec.min, max: spec.max, scale: spec.scale || null, unit: spec.unit } : { min: 0, max: 1, scale: null };
+}
+
+export function readTarget(project, target) {
+  if (target.kind === 'master') return project.master.volume;
+  const track = project.tracks.find((t) => t.id === target.trackId);
+  if (!track) return 0;
+  if (target.kind === 'track') return target.param === 'volume' ? track.mix.volume : track.gate;
+  if (target.kind === 'source') return track.source.params[target.param];
+  return track.chain.find((b) => b.type === target.blockType)?.params[target.param] ?? 0;
+}
+
+export { resolveTarget };

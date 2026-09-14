@@ -91,6 +91,7 @@ export function makeProject(name = 'Neues Set') {
     scale: 'minor',
     tracks: [makeTrack({ name: 'Spur 1', color: TRACK_COLORS[0], clips: [''] })],
     scenes: [],
+    macros: [null, null, null, null],
     script: { text: '', enabled: false },
     master: { volume: 0.7 },
   };
@@ -277,11 +278,36 @@ export function normalizeProject(raw) {
     ? tracks.slice(0, 8).map(normalizeTrack)
     : demoProject().tracks;
   project.scenes = normalizeScenes(raw?.scenes, project.tracks);
+  project.macros = normalizeMacros(raw?.macros, project.tracks);
   project.script = {
     text: typeof raw?.script?.text === 'string' ? raw.script.text.slice(0, 20000) : '',
     enabled: !!raw?.script?.enabled,
   };
   return project;
+}
+
+// Live-Regler duerfen nur auf Ziele zeigen, die es noch gibt.
+function normalizeMacros(raw, tracks) {
+  const macros = [null, null, null, null];
+  if (!Array.isArray(raw)) return macros;
+  raw.slice(0, 4).forEach((macro, i) => {
+    const target = macro?.target;
+    if (!target || typeof target !== 'object') return;
+    if (target.kind !== 'master') {
+      const track = tracks.find((t) => t.id === target.trackId);
+      if (!track) return;
+      if (target.kind === 'fx' && !track.chain.some((b) => b.type === target.blockType)) return;
+      if (target.kind === 'source' && !MODULES[track.source.type].params.some((p) => p.id === target.param)) return;
+    }
+    macros[i] = {
+      label: String(macro.label || 'Regler').slice(0, 24),
+      path: String(macro.path || ''),
+      target,
+      min: Number(macro.min) || 0,
+      max: Number(macro.max) || 1,
+    };
+  });
+  return macros;
 }
 
 // Klang-Presets werden auf die ausgewählte Spur angewendet.

@@ -193,6 +193,102 @@ const live = await page.evaluate(async () => {
 check('Ereignis feuert im laufenden Betrieb', live.mutedAfterBar2 === true);
 check('„end" hält die Wiedergabe an', live.playing === false);
 
+// ------------------------------------- Effekte, Muster und Regler im Script
+
+const structural = await page.evaluate(async () => {
+  const { script, project, engine } = window.blockwerk;
+  const p = project();
+  const lead = p.tracks[4];
+  p.script.text = [
+    'bar 1  add lead crusher',
+    'bar 2  bypass lead delay on',
+    'bar 3  pattern lead C = x . . . X . . . x3 . . . . . . x',
+    'bar 4  control 1 lead.crusher.bits 1 8 as Crush',
+    'bar 5  remove lead crusher',
+  ].join('\n');
+  p.script.enabled = true;
+  script.compile();
+  const errors = script.errors.map((e) => e.message);
+
+  const seen = {};
+  script.onBar(1, engine.ctx.currentTime);
+  seen.added = lead.chain.map((b) => b.type).join('>');
+  seen.inGraph = engine.tracks.get(lead.id).instances.size;
+  script.onBar(2, engine.ctx.currentTime);
+  seen.bypassed = lead.chain.find((b) => b.type === 'delay')?.bypass;
+  script.onBar(3, engine.ctx.currentTime);
+  seen.pattern = lead.clips[2] ? lead.clips[2].steps.filter((st) => st.on).length : 0;
+  seen.patternDeg = lead.clips[2]?.steps[8]?.deg;
+  seen.accent = lead.clips[2]?.steps[4]?.on;
+  script.onBar(4, engine.ctx.currentTime);
+  seen.macro = p.macros[0] && { label: p.macros[0].label, min: p.macros[0].min, max: p.macros[0].max };
+  script.onBar(5, engine.ctx.currentTime);
+  seen.removed = lead.chain.map((b) => b.type).join('>');
+  return { errors, seen };
+});
+
+check('Script-Befehle für Effekte werden gelesen', structural.errors.length === 0,
+  structural.errors.join(' | '));
+check('„add" hängt einen Effekt an und verkabelt ihn',
+  structural.seen.added === 'delay>reverb>crusher' && structural.seen.inGraph === 3,
+  structural.seen.added);
+check('„bypass" schaltet einen Effekt stumm', structural.seen.bypassed === true);
+check('„pattern" schreibt einen Clip', structural.seen.pattern === 4 && structural.seen.patternDeg === 3
+  && structural.seen.accent === 2, `${structural.seen.pattern} Schritte`);
+check('„control" belegt einen Live-Regler',
+  structural.seen.macro?.label === 'Crush' && structural.seen.macro.min === 1 && structural.seen.macro.max === 8,
+  JSON.stringify(structural.seen.macro));
+check('„remove" nimmt den Effekt wieder weg',
+  structural.seen.removed === 'delay>reverb', structural.seen.removed);
+
+// Ein im Script hinzugefügter Effekt muss auch Regler bekommen
+await page.evaluate(() => {
+  const { script, project, engine } = window.blockwerk;
+  const p = project();
+  p.script.text = 'bar 1 add lead crusher';
+  script.compile();
+  script.reset();
+  script.onBar(1, engine.ctx.currentTime);
+});
+await page.click('[data-view="sound"]');
+await page.waitForTimeout(150);
+await page.evaluate(() => {
+  const p = window.blockwerk.project();
+  window.blockwerk.rack.hooks.onSelectTrack(p.tracks[4].id);
+});
+await page.waitForTimeout(150);
+const crusherBlock = await page.evaluate(() =>
+  [...document.querySelectorAll('.block-fx h3')].map((h) => h.textContent.trim()));
+check('Der neue Effekt ist sofort regelbar', crusherBlock.includes('Crusher'),
+  crusherBlock.join(', '));
+await page.click('[data-view="live"]');
+
+// Script während der Wiedergabe ändern
+const liveEdit = await page.evaluate(async () => {
+  const { script, transport, project, engine } = window.blockwerk;
+  const p = project();
+  p.tempo = 240;
+  p.script.text = 'bar 2 mute hihat';
+  p.script.enabled = true;
+  script.compile();
+  script.reset();
+  transport.start();
+  await new Promise((r) => setTimeout(r, 1300));   // Takt 2 ist durch
+  const mutedFirst = p.tracks[2].mix.mute;
+
+  // im Laufen ein neues Ereignis einsetzen
+  p.script.text = 'bar 2 mute hihat\nbar 4 unmute hihat';
+  script.compile();
+  const refiredImmediately = p.tracks[2].mix.mute;
+  await new Promise((r) => setTimeout(r, 2500));
+  const afterBar4 = p.tracks[2].mix.mute;
+  transport.stop();
+  p.tracks[2].mix.mute = false;
+  return { mutedFirst, refiredImmediately, afterBar4 };
+});
+check('Script lässt sich im Laufen ändern', liveEdit.mutedFirst === true && liveEdit.afterBar4 === false,
+  `Takt 2 stumm: ${liveEdit.mutedFirst}, nach Takt 4 frei: ${liveEdit.afterBar4 === false}`);
+
 // -------------------------------------------------------------- Oberfläche
 
 await page.click('[data-view="script"]');

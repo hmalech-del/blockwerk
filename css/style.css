@@ -598,6 +598,38 @@ button.small { padding: 5px 10px; font-size: 12px; }
 }
 .pad.mute.on { background: var(--danger); border-color: var(--danger); color: #0d0f14; }
 
+/* Live-Regler: vier frei belegbare Parameter */
+.macros {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.macro {
+  display: grid;
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.macro.empty { opacity: .6; border-style: dashed; }
+.macro-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.macro-label { font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.macro-value {
+  font: 11px ui-monospace, Menlo, monospace;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.macro input[type="range"] { height: 26px; }
+.macro-pick {
+  font-size: 11px;
+  padding: 3px 6px;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+.macro-pick:hover, .macro-pick:focus { color: var(--text); border-color: var(--line); }
+
 /* Kommende Script-Ereignisse unter dem Streifen */
 .script-next {
   display: flex;

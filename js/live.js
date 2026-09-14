@@ -6,6 +6,9 @@
 // Ein vorgemerkter Clip steht sichtbar vor dem Spielkopf, samt Wechselmarke.
 
 import { CLIP_SLOTS, STEPS_PER_BAR } from './project.js';
+import { MODULES } from './modules.js';
+import { toSlider, fromSlider, formatValue } from './rack.js';
+import { resolveTarget, targetSpec, readTarget } from './script.js';
 
 const VISIBLE_STEPS = 32;      // zwei Takte im Bild
 const PLAYHEAD_AT = 0.34;      // Spielkopf bei 34 % der Breite
@@ -68,7 +71,9 @@ export class Live {
         ${project.scenes.length ? `<button class="ghost small" data-act="scene-edit">${this.editScenes ? 'Fertig' : 'Bearbeiten'}</button>` : ''}
       </div>
 
-      <div class="pads">${pads}</div>`;
+      <div class="pads">${pads}</div>
+
+      <div class="macros">${this.macroMarkup()}</div>`;
 
     this.canvas = this.el.querySelector('.strip');
     this.ctx2d = this.canvas.getContext('2d');
@@ -81,6 +86,43 @@ export class Live {
 
   get rowHeight() {
     return window.innerHeight < 720 ? ROW_HEIGHT_FLAT : ROW_HEIGHT;
+  }
+
+  // Vier Live-Regler auf beliebige Parameter – die grafische Seite dessen,
+  // was das Script mit „control“ macht.
+  macroMarkup() {
+    const project = this.project;
+    const macros = project.macros || [];
+    return macros.map((macro, slot) => {
+      if (!macro) {
+        return `<div class="macro empty" data-slot="${slot}">
+          <span class="macro-label">Regler ${slot + 1}</span>
+          ${this.targetSelect(slot, null)}
+        </div>`;
+      }
+      const spec = { ...targetSpec(project, macro.target), min: macro.min, max: macro.max };
+      const value = readTarget(project, macro.target);
+      return `<div class="macro" data-slot="${slot}">
+        <div class="macro-head">
+          <span class="macro-label" title="${macro.path}">${macro.label}</span>
+          <output class="macro-value">${formatValue(spec, value)}</output>
+        </div>
+        <input type="range" min="0" max="1000" step="1" value="${toSlider(spec, value)}"
+               data-act="macro" data-slot="${slot}">
+        ${this.targetSelect(slot, macro.path)}
+      </div>`;
+    }).join('');
+  }
+
+  targetSelect(slot, current) {
+    const groups = macroTargets(this.project);
+    const options = groups.map(({ group, items }) => `
+      <optgroup label="${group}">
+        ${items.map((it) => `<option value="${it.path}"${it.path === current ? ' selected' : ''}>${it.label}</option>`).join('')}
+      </optgroup>`).join('');
+    return `<select class="macro-pick" data-act="macro-target" data-slot="${slot}">
+      <option value="">– nicht belegt –</option>${options}
+    </select>`;
   }
 
   resizeCanvas() {
@@ -307,7 +349,54 @@ export class Live {
       }
       return undefined;
     });
+
+    this.el.addEventListener('input', (e) => {
+      if (e.target.dataset.act !== 'macro') return;
+      const slot = Number(e.target.dataset.slot);
+      const macro = this.project.macros?.[slot];
+      if (!macro) return;
+      const spec = { ...targetSpec(this.project, macro.target), min: macro.min, max: macro.max };
+      const value = fromSlider(spec, Number(e.target.value));
+      this.hooks.onMacro(macro.target, value);
+      const out = e.target.parentElement.querySelector('.macro-value');
+      if (out) out.textContent = formatValue(spec, value);
+    });
+
+    this.el.addEventListener('change', (e) => {
+      if (e.target.dataset.act !== 'macro-target') return;
+      this.hooks.onMacroTarget(Number(e.target.dataset.slot), e.target.value);
+      this.render();
+    });
   }
+}
+
+// Alle stufenlos regelbaren Ziele des Projekts, nach Spur gruppiert.
+export function macroTargets(project) {
+  const groups = [{ group: 'Master', items: [{ path: 'master.volume', label: 'Lautstärke' }] }];
+  for (const track of project.tracks) {
+    const items = [
+      { path: `${track.name}.volume`, label: 'Pegel' },
+      { path: `${track.name}.gate`, label: 'Notenlänge' },
+    ];
+    for (const spec of MODULES[track.source.type].params) {
+      if (spec.type === 'select') continue;
+      items.push({ path: `${track.name}.source.${spec.id}`, label: `Quelle · ${spec.label}` });
+    }
+    for (const block of track.chain) {
+      for (const spec of MODULES[block.type].params) {
+        if (spec.type === 'select') continue;
+        items.push({ path: `${track.name}.${block.type}.${spec.id}`, label: `${MODULES[block.type].name} · ${spec.label}` });
+      }
+    }
+    groups.push({ group: track.name, items });
+  }
+  return groups;
+}
+
+// Pfad wie „bass.filter.freq“ in ein Ziel aufloesen.
+export function pathToTarget(project, path) {
+  const byName = new Map(project.tracks.map((t) => [t.name.trim().toLowerCase(), t]));
+  return resolveTarget(path, byName);
 }
 
 function escapeHtml(text) {

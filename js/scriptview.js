@@ -15,6 +15,10 @@ bar 17   scene Hook
 bar 25   scene Break
 bar 29   bass.filter.freq 2600 -> 400 over 2 bars
 bar 33   scene Hook
+
+# Effekt im Lauf anbauen und auf einen Live-Regler legen
+bar 17   add lead crusher, control 1 lead.crusher.bits 1 8 as Crush
+bar 41   remove lead crusher
 `;
 
 export class ScriptView {
@@ -58,6 +62,11 @@ export class ScriptView {
           <tr><td><code>scene Hook</code></td><td>Szene aufrufen</td></tr>
           <tr><td><code>mute lead bass</code></td><td>Spuren stumm schalten, <code>unmute</code> umgekehrt</td></tr>
           <tr><td><code>bass.filter.freq 300 -&gt; 4000 over 8 bars</code></td><td>Parameter fahren</td></tr>
+          <tr><td><code>add lead crusher</code></td><td>Effekt anhängen – die Regler dafür erscheinen sofort im Klang-Reiter</td></tr>
+          <tr><td><code>remove lead crusher</code></td><td>Effekt wieder entfernen</td></tr>
+          <tr><td><code>bypass lead delay on</code></td><td>Effekt überbrücken (<code>on</code> / <code>off</code>)</td></tr>
+          <tr><td><code>pattern kick C = x . . . x . . .</code></td><td>Clip aus dem Script schreiben (1, 2 oder 4 Takte)</td></tr>
+          <tr><td><code>control 1 lead.delay.mix as Delay</code></td><td>Live-Regler belegen; Bereich optional: <code>… 0 0.8 as Delay</code></td></tr>
           <tr><td><code>end</code></td><td>Wiedergabe anhalten</td></tr>
         </table>
         <p>Ziele für Fahrten: <code>spur.volume</code>, <code>spur.gate</code>,

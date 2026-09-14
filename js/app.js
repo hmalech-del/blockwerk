@@ -4,8 +4,8 @@ import { Engine } from './engine.js';
 import { Transport } from './transport.js';
 import { Rack, renderPalette } from './rack.js';
 import { Sequencer } from './sequencer.js';
-import { Live } from './live.js';
-import { ScriptRunner } from './script.js';
+import { Live, macroTargets, pathToTarget } from './live.js';
+import { ScriptRunner, targetSpec } from './script.js';
 import { ScriptView } from './scriptview.js';
 import { Keyboard } from './keyboard.js';
 import { parseSteps, stepsToText } from './pattern.js';
@@ -43,6 +43,15 @@ const script = new ScriptRunner({
     sequencer.render();
     live.refresh();
     syncControls();
+  },
+  // Ein Script, das Effekte an- oder abbaut, muss den Graphen und die
+  // Oberfläche mitziehen – sonst gäbe es Regler ohne Klang.
+  onStructure: () => {
+    engine.sync();
+    live.render();
+    sequencer.render();
+    if (currentView === 'sound') rack.render();
+    save();
   },
 });
 
@@ -190,6 +199,28 @@ const live = new Live($('#live'), {
   },
   onChange: ({ mix = false } = {}) => {
     if (mix) engine.applyMix();
+    save();
+  },
+  onMacro: (target, value) => {
+    script.setTarget(target, value);
+    save();
+  },
+  onMacroTarget: (slot, path) => {
+    project.macros = project.macros || [null, null, null, null];
+    if (!path) {
+      project.macros[slot] = null;
+    } else {
+      const resolved = pathToTarget(project, path);
+      if (resolved.error) return;
+      const spec = targetSpec(project, resolved.value);
+      // Die Beschriftung muss die Spur nennen – drei Regler namens „volume“
+      // sagen auf der Bühne gar nichts.
+      const entry = macroTargets(project)
+        .flatMap((g) => g.items.map((it) => ({ ...it, group: g.group })))
+        .find((it) => it.path === path);
+      const label = entry ? `${entry.group} · ${entry.label}` : path;
+      project.macros[slot] = { label, path, target: resolved.value, min: spec.min, max: spec.max };
+    }
     save();
   },
   onSceneSave: () => {

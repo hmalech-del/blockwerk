@@ -62,6 +62,10 @@ Streifen statt eines Rasters:
   und kann sie bis zur letzten Sekunde umwerfen.
 - **Szenen** schalten alle Spuren gemeinsam, Stummschaltungen eingeschlossen.
   „＋ Szene sichern" macht aus der aktuellen Auswahl eine neue Szene.
+- Ein Tipp **kurz vor der Eins** zählt noch für diese Taktgrenze: der Scheduler
+  nimmt die bereits verplanten, aber noch nicht erklungenen Schritte zurück und
+  plant sie neu. Ohne das käme der Wechsel einen Takt zu spät – und genau dort
+  tippen Musiker.
 - **Pads** sind bewusst groß: im Dunkeln trifft niemand eine 30-Pixel-Fläche.
   Das M-Pad schaltet sofort stumm, die Clip-Pads warten auf die Taktgrenze.
 
@@ -117,6 +121,11 @@ bar 33   end
 | `scene Hook` | Szene aufrufen |
 | `mute lead bass` | Spuren stumm schalten, `unmute` umgekehrt |
 | `bass.filter.freq 300 -> 4000 over 8 bars` | Parameter über mehrere Takte fahren |
+| `add lead crusher` | Effekt anhängen – die Regler dafür erscheinen sofort im Klang-Reiter |
+| `remove lead crusher` | Effekt wieder entfernen |
+| `bypass lead delay on` | Effekt überbrücken (`on` / `off`) |
+| `pattern kick C = x . . . x . . .` | Clip aus dem Script schreiben (1, 2 oder 4 Takte) |
+| `control 1 lead.delay.mix as Delay` | Live-Regler belegen, Bereich optional |
 | `end` | Wiedergabe anhalten |
 
 Ziele für Fahrten: `spur.volume`, `spur.gate`, `spur.source.<parameter>`,
@@ -135,8 +144,26 @@ Fehler melden Zeile und Grund und nennen, was stattdessen möglich gewesen wäre
 („Unbekannte Spur ‚drums' – vorhanden: Kick, Snare, HiHat, Bass, Lead"). Eine
 Sprache ohne brauchbare Fehlermeldungen ist auf der Bühne wertlos.
 
+Das Script lässt sich **im Laufen ändern**: „Übernehmen" (oder `Strg`/`Cmd` +
+`Enter`) übersetzt neu, ohne den Transport anzuhalten. Bereits gefeuerte Takte
+wiederholen sich dabei nicht, neue Ereignisse weiter vorn greifen sofort.
+
+Wer im Script einen Effekt anlegt, bekommt ihn auch zum Anfassen: `add` hängt
+den Block an die Kette, der Klang-Reiter zeichnet dessen Regler von selbst, und
+`control` legt ihn auf einen der vier Live-Regler.
+
 Bekannte Grenze: Während eine Fahrt läuft, bewegen sich die Regler im
 Klang-Reiter nicht mit – der Wert dahinter ändert sich trotzdem.
+
+## Live-Regler
+
+Vier frei belegbare Regler unter den Pads, für alles, was sich stufenlos
+einstellen lässt: Spurpegel, Notenlänge, jeder Quellen- und jeder
+Effektparameter, Masterpegel. Belegen geht auf beiden Wegen – über das
+Auswahlfeld unter dem Regler oder aus dem Script mit `control`. Der Bereich
+kommt automatisch aus dem Modul, lässt sich im Script aber eingrenzen
+(`control 1 bass.filter.freq 300 1200 as Bass`), damit man live nicht versehentlich
+über den nutzbaren Bereich hinausdreht.
 
 ## Clips als Text
 
@@ -232,8 +259,10 @@ npm test
 - `tests/sequencer.mjs` misst die Abstände der geplanten Noten, prüft
   quantisierte Clipwechsel, Skalenrechnung, Textformat und Stimmenfreigabe.
 - `tests/script.mjs` prüft den Parser samt Fehlermeldungen, das Auslösen an
-  Taktgrenzen, Parameterfahrten und dass Handgriffe den Plan überstimmen.
-- `tests/live.mjs` prüft die Live-Ansicht (Streifen, Vorschau, Szenen, Pads),
+  Taktgrenzen, Parameterfahrten, Effekt- und Musterbefehle, Änderungen im
+  laufenden Betrieb und dass Handgriffe den Plan überstimmen.
+- `tests/live.mjs` prüft die Live-Ansicht (Streifen, Vorschau, Szenen, Pads,
+  Live-Regler), dass Szenen auch bei einem Tap kurz vor der Eins greifen,
   die Audio-Absicherung (Entsperren, Testton, Erholung nach Unterbrechung),
   dass „Start" schon als allererste Geste greift und dabei nichts verrutscht,
   und dass weder auf 1440 × 790 noch auf 390 px etwas überläuft.
@@ -242,11 +271,11 @@ npm test
 
 ## Fahrplan
 
-Sequenzer, Live-Ansicht und Set-Script stehen. Denkbar als Nächstes:
-Modulationsquellen (LFO auf beliebige Parameter), Aufnahme als WAV,
-MIDI-Eingang für Controller mit echten Knöpfen, Script-Marken direkt im
-Streifen, und ein Worker-Timer, damit der Takt auch in Hintergrund-Tabs nicht
-stolpert.
+Sequenzer, Live-Ansicht, Live-Regler und Set-Script stehen. Denkbar als
+Nächstes: ein **Sampler** als weitere Quelle, Modulationsquellen (LFO auf
+beliebige Parameter), Aufnahme als WAV, MIDI-Eingang für Controller mit echten
+Knöpfen, Script-Marken direkt im Streifen, und ein Worker-Timer, damit der Takt
+auch in Hintergrund-Tabs nicht stolpert.
 
 ## Lizenz
 
