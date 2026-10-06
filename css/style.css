@@ -503,6 +503,16 @@ button.small { padding: 5px 10px; font-size: 12px; }
     gap: 6px;
   }
   .scene-bar .scene { width: 100%; }
+
+  /* Im Feldmodus gilt die Reihenfolge im Dokument: Spielflaeche zuerst. */
+  .live.field-mode {
+    grid-template-columns: 1fr;
+    grid-template-areas: none;
+  }
+  .live.field-mode .strip-wrap,
+  .live.field-mode .scene-bar { grid-area: auto; }
+  .live.field-mode .scene-bar { flex-direction: row; align-items: center; }
+  .live.field-mode .scene-bar .scene { width: auto; }
 }
 
 .strip-wrap {
@@ -597,6 +607,52 @@ button.small { padding: 5px 10px; font-size: 12px; }
   animation: blink .55s steps(2, start) infinite;
 }
 .pad.mute.on { background: var(--danger); border-color: var(--danger); color: #0d0f14; }
+
+/* Gestenfeld */
+.mode-switch { display: flex; gap: 4px; }
+.mode-switch button {
+  padding: 6px 16px;
+  font-size: 13px;
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--line);
+}
+.mode-switch button.on { background: var(--panel); color: var(--accent); border-color: var(--accent); }
+
+.gesture-host { display: grid; gap: 8px; user-select: none; -webkit-user-select: none; }
+.field-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.field-tracks { display: flex; flex-wrap: wrap; gap: 6px; }
+.field-track {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--panel);
+  color: var(--muted);
+}
+.field-track .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--track); }
+.field-track.on { color: var(--text); border-color: var(--track); }
+.field-count { font-size: 12px; color: var(--accent); }
+.switch.small { padding: 5px 10px; font-size: 12px; }
+.switch.small input { width: 14px; height: 14px; }
+
+.field {
+  display: block;
+  width: 100%;
+  /* Die Spielflaeche muss ohne Scrollen erreichbar sein – deshalb nimmt sie,
+     was das Fenster hergibt, statt einer festen Hoehe. */
+  height: clamp(190px, calc(100vh - 330px), 420px);
+  touch-action: none;
+  border-radius: var(--radius);
+  background:
+    radial-gradient(120% 100% at 50% 0%, rgba(122, 162, 255, .10), transparent 70%),
+    linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  cursor: crosshair;
+}
+.gesture-host .hint { margin: 0; font-size: 12px; color: var(--muted); }
 
 /* Live-Regler: vier frei belegbare Parameter */
 .macros {
@@ -962,6 +1018,7 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
    damit Streifen und Pads ohne Scrollen sichtbar bleiben. */
 @media (max-height: 720px) {
   main { padding-top: 10px; gap: 16px; }
+  .gesture-host { gap: 5px; }
   .tabs { padding-top: 6px; padding-bottom: 6px; }
   .live { gap: 10px; }
   .pad, .pad-name { padding-top: 8px; padding-bottom: 8px; }

@@ -20,6 +20,7 @@ export class Live {
   constructor(el, hooks) {
     this.el = el;
     this.hooks = hooks; // getProject, transport, onChange, onSelect
+    this.mode = 'pads';
     this.editScenes = false;
     this.render();
     this.bind();
@@ -55,7 +56,9 @@ export class Live {
         <button class="pad mute${track.mix.mute ? ' on' : ''}" data-act="mute" title="Stumm">M</button>
       </div>`).join('');
 
-    this.el.innerHTML = `
+    const field = this.mode === 'field';
+
+    const stripBlock = `
       <div class="strip-wrap">
         <canvas class="strip"></canvas>
         <div class="strip-legend">
@@ -63,17 +66,28 @@ export class Live {
           <span class="next-label" data-role="countdown"></span>
         </div>
         <div class="script-next" data-role="script-next" hidden></div>
-      </div>
+      </div>`;
 
+    const modeBlock = `
+      <div class="mode-switch">
+        <button data-act="mode" data-mode="pads" class="${field ? '' : 'on'}">Pads</button>
+        <button data-act="mode" data-mode="field" class="${field ? 'on' : ''}">Feld</button>
+      </div>`;
+
+    const sceneBlock = `
       <div class="scene-bar">
         ${scenes || '<p class="empty">Noch keine Szenen – unten aus der aktuellen Auswahl sichern.</p>'}
         <button class="ghost small" data-act="scene-save">＋ Szene sichern</button>
         ${project.scenes.length ? `<button class="ghost small" data-act="scene-edit">${this.editScenes ? 'Fertig' : 'Bearbeiten'}</button>` : ''}
-      </div>
+      </div>`;
 
-      <div class="pads">${pads}</div>
-
-      <div class="macros">${this.macroMarkup()}</div>`;
+    // Im Feldmodus steht die Spielflaeche ganz oben: was man anfasst, gehoert
+    // nach vorn. Vorschau und Szenen ruecken darunter.
+    this.el.classList.toggle('field-mode', field);
+    this.el.innerHTML = field
+      ? modeBlock + '<div class="gesture-host" id="gesture-host"></div>' + stripBlock + sceneBlock
+      : stripBlock + modeBlock + sceneBlock
+        + `<div class="pads">${pads}</div><div class="macros">${this.macroMarkup()}</div>`;
 
     this.canvas = this.el.querySelector('.strip');
     this.ctx2d = this.canvas.getContext('2d');
@@ -85,7 +99,9 @@ export class Live {
   }
 
   get rowHeight() {
-    return window.innerHeight < 720 ? ROW_HEIGHT_FLAT : ROW_HEIGHT;
+    // Im Feldmodus braucht die Spielflaeche den Platz, nicht die Vorschau.
+    if (this.mode === 'field' || window.innerHeight < 720) return ROW_HEIGHT_FLAT;
+    return ROW_HEIGHT;
   }
 
   // Vier Live-Regler auf beliebige Parameter – die grafische Seite dessen,
@@ -125,10 +141,16 @@ export class Live {
     </select>`;
   }
 
+  get compact() {
+    // Im Feldmodus schrumpft die Vorschau auf ein Band: man spielt mit der
+    // Hand und braucht vor allem zu wissen, wo im Takt man ist.
+    return this.mode === 'field';
+  }
+
   resizeCanvas() {
     const rows = this.project.tracks.length;
     const cssWidth = this.canvas.clientWidth;
-    const cssHeight = Math.max(80, rows * this.rowHeight + 20);
+    const cssHeight = this.compact ? 46 : Math.max(80, rows * this.rowHeight + 20);
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     if (this.canvas.style.height !== `${cssHeight}px`) this.canvas.style.height = `${cssHeight}px`;
     const w = Math.round(cssWidth * dpr);
@@ -188,6 +210,30 @@ export class Live {
     // Zukunft leicht abheben
     ctx.fillStyle = 'rgba(122, 162, 255, .05)';
     ctx.fillRect(playheadX, 12, width - playheadX, height - 18);
+
+    if (this.compact) {
+      // Alle Spuren in einem Band, nach Farbe unterscheidbar.
+      project.tracks.forEach((track, row) => {
+        const clip = track.clips[track.clip];
+        if (!clip || track.mix.mute) return;
+        const y = 14 + (row % 4) * 5;
+        for (let s = Math.max(0, Math.floor(originStep)); s < originStep + VISIBLE_STEPS + 1; s++) {
+          const cell = clip.steps[s % clip.steps.length];
+          if (!cell || !cell.on) continue;
+          ctx.globalAlpha = s >= position ? 0.95 : 0.35;
+          ctx.fillStyle = track.color;
+          ctx.fillRect(xOf(s), y, Math.max(2, pxPerStep * 0.6), 4);
+        }
+      });
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = transport.playing ? '#e8ecf5' : 'rgba(232,236,245,.35)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(playheadX, 2);
+      ctx.lineTo(playheadX, height - 2);
+      ctx.stroke();
+      return;
+    }
 
     const rowHeight = this.rowHeight;
     project.tracks.forEach((track, row) => {
@@ -342,6 +388,11 @@ export class Live {
       if (act === 'scene-save') {
         this.hooks.onSceneSave();
         return this.render();
+      }
+      if (act === 'mode') {
+        this.mode = btn.dataset.mode;
+        this.render();                 // erst den Platzhalter bauen,
+        return this.hooks.onMode(this.mode); // dann das Feld einhaengen
       }
       if (act === 'scene-edit') {
         this.editScenes = !this.editScenes;

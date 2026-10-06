@@ -49,6 +49,36 @@ bis hinunter zu 620 px Höhe:
 4. Nach einem Anruf oder App-Wechsel nimmt die App den Ton beim Zurückkehren
    von selbst wieder auf.
 
+## Zwei Arten zu spielen
+
+Die Live-Ansicht hat zwei Flächen, umschaltbar mit **Pads / Feld**.
+
+**Pads** ist das Geplante: Clips starten, Szenen abrufen, Regler schieben.
+
+**Feld** ist das Gegenteil – und der eigentliche Grund, warum das Ding Spaß
+macht. Eine große Fläche, auf der man mit dem Finger fährt:
+
+- **Waagerecht** wählt die Spalte: beim Sampler ein Slice, sonst eine
+  Skalenstufe. Wandert der Finger über eine Spaltengrenze, **löst er neu aus** –
+  deshalb fühlt sich das Wischen über einen zerhackten Break an wie Scratchen
+  und nicht wie Tippen.
+- **Senkrecht** regelt ein frei gewähltes Ziel: Filter, Tonhöhe, Delay-Anteil,
+  was man will.
+- Was die Hand tut, wird als **Schleife mitgeschrieben** und läuft weiter. Die
+  nächste Geste legt sich darüber, „Letzte weg" nimmt sie zurück. Die
+  aufgenommenen Pfade bleiben als Linien sichtbar – man sieht, was man gespielt
+  hat.
+- Mehrere Finger gleichzeitig gehen auch.
+
+Der Unterschied zum Raster ist nicht nur die Bedienung: Eine Geste ist ein
+**Pfad, kein Schritt**. Sie liegt zwischen den Rasterpunkten, sie hat eine
+Richtung und eine Geschwindigkeit, und ihr senkrechter Verlauf regelt
+nebenbei einen Klangparameter. So etwas lässt sich in einem Schrittraster nicht
+notieren.
+
+Im Feldmodus rückt die Spielfläche nach oben und die Vorschau schrumpft auf ein
+Band: Was man anfasst, gehört nach vorn.
+
 ## Live-Ansicht
 
 Ein Raster aus 64 Zellen beantwortet die Frage „was läuft gerade?" – die hört
@@ -262,7 +292,8 @@ js/
   project.js     Datenmodell, Skalen, Normalisierung, Presets
   pattern.js     Clip ⇄ Text
   sequencer.js   Raster, Clips, Spielkopf
-  live.js        Streifen mit Vorschau, Szenen, Pads
+  live.js        Streifen mit Vorschau, Szenen, Pads, Moduswechsel
+  gesture.js     Gestenfeld: Pfade, Anschläge, Schleifenaufnahme
   samples.js     Aufnahme, Zerlegung, Wellenform, IndexedDB
   sampler.js     Sampler-Ansicht: Wellenform, Marken, Slices
   script.js      Set-Script: Parser und Ausführung
@@ -288,7 +319,7 @@ Tonartwechsel das laufende Set, und derselbe Clip passt in jeden Kontext.
 
 ## Tests
 
-Sechs Playwright-Tests laufen headless gegen einen eingebauten Mini-Webserver:
+Sieben Playwright-Tests laufen headless gegen einen eingebauten Mini-Webserver:
 
 ```bash
 npm install
@@ -305,6 +336,9 @@ npm test
   dass die Erkennung sie auf wenige Millisekunden genau findet, dass die Stufe
   den richtigen Ausschnitt wählt, dass ein Mitschnitt echtes Signal enthält und
   dass Samples einen Reload überleben.
+- `tests/gesture.mjs` prüft, dass nur Spaltenwechsel neu auslösen, dass eine
+  gezogene Geste als Schleife weiterläuft, dass ihr senkrechter Verlauf das
+  gewählte Ziel regelt – und dass die Spielfläche ohne Scrollen erreichbar ist.
 - `tests/script.mjs` prüft den Parser samt Fehlermeldungen, das Auslösen an
   Taktgrenzen, Parameterfahrten, Effekt- und Musterbefehle, Änderungen im
   laufenden Betrieb und dass Handgriffe den Plan überstimmen.
@@ -318,8 +352,9 @@ npm test
 
 ## Fahrplan
 
-Sequenzer, Live-Ansicht, Live-Regler, Set-Script und Sampler stehen. Denkbar
-als Nächstes: Samples in den Export packen (als WAV eingebettet), Aufnahme des
+Sequenzer, Live-Ansicht mit Pads und Gestenfeld, Live-Regler, Set-Script und
+Sampler stehen. Denkbar als Nächstes: Gesten im Script ansprechen und
+verwandeln (spiegeln, strecken, würfeln), Gesten auf mehrere Ziele gleichzeitig, Samples in den Export packen (als WAV eingebettet), Aufnahme des
 Sets als WAV, Modulationsquellen (LFO auf beliebige Parameter), MIDI-Eingang für
 Controller mit echten Knöpfen, Script-Marken direkt im Streifen, und ein
 Worker-Timer, damit der Takt auch in Hintergrund-Tabs nicht stolpert.

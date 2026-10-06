@@ -7,6 +7,7 @@ import { Sequencer } from './sequencer.js';
 import { Live, macroTargets, pathToTarget } from './live.js';
 import { ScriptRunner, targetSpec } from './script.js';
 import { ScriptView } from './scriptview.js';
+import { GestureField, columnsFor, loopSteps, makeTake, valueAtStep, MAX_TAKES } from './gesture.js';
 import { SamplerView } from './sampler.js';
 import { SampleStore, Recorder, equalSlices, detectTransients } from './samples.js';
 import { Keyboard } from './keyboard.js';
@@ -230,6 +231,7 @@ const live = new Live($('#live'), {
     }
     save();
   },
+  onMode: () => mountField(),
   onSceneSave: () => {
     const name = prompt('Name der Szene?', `Szene ${project.scenes.length + 1}`);
     if (name === null) return;
@@ -399,6 +401,91 @@ const samplerView = new SamplerView($('#sampler'), {
     sequencer.render();
   },
 });
+
+// ------------------------------------------------------------- Gestenfeld
+
+// Der senkrechte Weg der Hand landet auf einem frei gewaehlten Ziel; die
+// Spanne kommt aus der Modul-Registry, damit 0..1 ueberall sinnvoll liegt.
+const targetCache = new Map();
+function gestureTarget(path) {
+  if (!path) return null;
+  if (!targetCache.has(path)) {
+    const resolved = pathToTarget(project, path);
+    targetCache.set(path, resolved.error ? null : resolved.value);
+  }
+  return targetCache.get(path);
+}
+
+function applyGestureValue(track, y) {
+  const target = gestureTarget(track?.gesture?.target);
+  if (!target || y === null) return;
+  const spec = targetSpec(project, target);
+  const value = spec.scale === 'log'
+    ? spec.min * Math.pow(spec.max / spec.min, y)
+    : spec.min + (spec.max - spec.min) * y;
+  script.setTarget(target, value);
+}
+
+const gestureField = new GestureField({
+  getProject: () => project,
+  getSelected: () => selectedId,
+  targets: () => macroTargets(project),
+  loopPosition: (track) => {
+    if (!track || !transport.playing) return 0;
+    const loop = loopSteps(track);
+    return ((transport.position() % loop) + loop) % loop;
+  },
+  onSelect: (id) => {
+    selectedId = id;
+    gestureField.render();
+    sequencer.render();
+    rack.render();
+    save();
+  },
+  onTrigger: (track, deg, y) => {
+    if (!track || userSuspended) return;
+    ensureAudio();
+    applyGestureValue(track, y);
+    const midi = degToMidi(deg, project.root, project.scale) + track.octave * 12;
+    engine.noteOn(track.id, midi, undefined, { dur: 0.35, velocity: 0.9, deg });
+  },
+  onMove: (track, y) => applyGestureValue(track, y),
+  onRelease: (track, points, recording, columns) => {
+    if (!track || !recording || !transport.playing || points.length < 2) return;
+    const takes = track.gesture.takes;
+    takes.push(makeTake(points, columns, { quantize: track.gesture.quantize }));
+    while (takes.length > MAX_TAKES) takes.shift();
+    save();
+    gestureField.render();
+  },
+  onUndo: (track) => {
+    track.gesture.takes.pop();
+    save();
+    gestureField.render();
+  },
+  onClear: (track) => {
+    track.gesture.takes = [];
+    save();
+    gestureField.render();
+  },
+  onTarget: (track, path) => {
+    track.gesture.target = path || null;
+    targetCache.clear();
+    save();
+  },
+  onQuantize: (track, on) => {
+    track.gesture.quantize = on;
+    save();
+  },
+});
+
+function mountField() {
+  const host = $('#gesture-host');
+  if (!host) return;
+  gestureField.mount(host);
+  // Auf schmalen Geräten steht die Spielfläche sonst unter der Kante.
+  if (window.innerWidth < 900) host.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
 
 const scriptView = new ScriptView($('#script'), {
   getProject: () => project,
@@ -693,7 +780,7 @@ for (const tab of document.querySelectorAll('[data-view]')) {
     }
     currentView = view;
     if (view === 'sound') rack.render();
-    if (view === 'live') live.render();
+    if (view === 'live') { live.render(); mountField(); }
     if (view === 'script') scriptView.render();
     if (view === 'sampler') samplerView.render();
   });
@@ -752,6 +839,7 @@ engine.setProject(project);
 syncControls();
 sequencer.render();
 live.render();
+mountField();
 rack.render();
 script.compile();
 scriptView.render();
@@ -759,16 +847,27 @@ updatePower();
 updatePlay();
 
 window.blockwerk = {
-  engine, transport, samples, project: () => project,
+  engine, transport, samples, gestureField, project: () => project,
   sequencer, live, rack, script, scriptView, samplerView, keyboard, CLIP_SLOTS,
   addSample: (name, data, rate) => addSample(name, { data, sampleRate: rate }),
 };
 
 (function frame() {
-  if (transport.playing) script.updateRamps(transport.position());
+  if (transport.playing) {
+    script.updateRamps(transport.position());
+    // Der senkrechte Verlauf aufgenommener Gesten laeuft weich mit.
+    const position = transport.position();
+    for (const track of project.tracks) {
+      if (!track.gesture?.takes.length || !track.gesture.target) continue;
+      applyGestureValue(track, valueAtStep(track, position));
+    }
+  }
   if (currentView === 'sound') rack.setLevel(engine.running ? engine.level() : 0);
   if (currentView === 'seq') sequencer.tick();
-  if (currentView === 'live') live.tick(script);
+  if (currentView === 'live') {
+    live.tick(script);
+    if (live.mode === 'field') gestureField.tick();
+  }
   if (currentView === 'sampler') samplerView.tick();
   const bar = $('#position');
   if (bar) {

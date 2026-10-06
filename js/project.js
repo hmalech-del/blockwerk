@@ -66,6 +66,7 @@ export function makeTrack(partial = {}) {
     clip: 0,
     queued: null,
     queuedMute: null,
+    gesture: { target: null, quantize: false, takes: [] },
   };
 }
 
@@ -246,6 +247,7 @@ function normalizeTrack(raw, index) {
   track.clip = Number.isInteger(raw?.clip) && raw.clip >= 0 && raw.clip < CLIP_SLOTS.length ? raw.clip : 0;
   track.queued = null;
   track.queuedMute = null;
+  track.gesture = normalizeGesture(raw?.gesture);
   return track;
 }
 
@@ -320,6 +322,28 @@ function normalizeSamples(raw) {
       slices: slices.length ? slices : [0],
     };
   });
+}
+
+// Gesten sind Pfade; beim Laden werden sie auf vernuenftige Groessen gestutzt.
+function normalizeGesture(raw) {
+  const gesture = { target: null, quantize: false, takes: [] };
+  if (!raw || typeof raw !== 'object') return gesture;
+  if (typeof raw.target === 'string') gesture.target = raw.target;
+  gesture.quantize = !!raw.quantize;
+  if (!Array.isArray(raw.takes)) return gesture;
+
+  gesture.takes = raw.takes.slice(0, 24).map((take) => ({
+    id: String(take?.id || uid('g')),
+    points: (Array.isArray(take?.points) ? take.points : [])
+      .slice(0, 1200)
+      .filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.x) && Number.isFinite(p?.y))
+      .map((p) => ({ t: p.t, x: clamp01(p.x), y: clamp01(p.y) })),
+    events: (Array.isArray(take?.events) ? take.events : [])
+      .slice(0, 400)
+      .filter((e) => Number.isFinite(e?.t) && Number.isInteger(e?.deg))
+      .map((e) => ({ t: e.t, deg: e.deg, dur: Math.max(0.05, Number(e.dur) || 0.25), y: clamp01(e.y ?? 0.5) })),
+  })).filter((take) => take.points.length > 1);
+  return gesture;
 }
 
 // Live-Regler duerfen nur auf Ziele zeigen, die es noch gibt.

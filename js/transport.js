@@ -4,6 +4,7 @@
 // vorausgeplant. Die Audio-Uhr bestimmt den Groove, nicht der Timer.
 
 import { degToMidi, STEPS_PER_BAR } from './project.js';
+import { eventsAtStep } from './gesture.js';
 
 const INTERVAL_MS = 25;
 const LOOKAHEAD = 0.15;
@@ -108,6 +109,20 @@ export class Transport {
       });
       if (record) this.scheduled.push({ step, time: time + swingOffset, trackId: track.id, record });
     }
+
+    // Gesten liegen zwischen den Schritten – deshalb mit Bruchteil planen.
+    for (const track of project.tracks) {
+      for (const event of eventsAtStep(track, step)) {
+        const offset = (event.t - (step % Math.max(1, this.loopFor(track)))) * stepDur;
+        const midi = degToMidi(event.deg, project.root, project.scale) + track.octave * 12;
+        const record = this.engine.noteOn(track.id, midi, time + Math.max(0, offset), {
+          dur: Math.max(0.03, event.dur * stepDur),
+          velocity: 0.9,
+          deg: event.deg,
+        });
+        if (record) this.scheduled.push({ step, time: time + offset, trackId: track.id, record });
+      }
+    }
     this.stepTimes.set(step, time);
   }
 
@@ -137,6 +152,11 @@ export class Transport {
     this.step = step;
     this.nextTime = time;
     return true;
+  }
+
+  loopFor(track) {
+    const clip = track.clips[track.clip];
+    return Math.max(STEPS_PER_BAR, (clip?.bars || 1) * STEPS_PER_BAR);
   }
 
   queueClip(trackId, slot) {
