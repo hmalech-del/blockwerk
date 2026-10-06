@@ -134,7 +134,14 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .ghost { background: transparent; color: var(--muted); }
 .ghost:hover { color: var(--text); }
 
+/* Mindestens 28 px in beide Richtungen: alles darunter trifft im Dunkeln
+   niemand zuverlässig. tests/ui-budget.mjs hält das fest. */
 .icon {
+  min-width: 30px;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 4px 8px;
   line-height: 1;
   font-size: 13px;
@@ -689,7 +696,8 @@ button.small { padding: 5px 10px; font-size: 12px; }
 .macro-label { font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
 /* Lernknopf für einen Drehregler am Controller. */
 .midi-chip {
-  padding: 2px 7px; font-size: 10px; letter-spacing: .06em;
+  min-height: 28px; display: inline-flex; align-items: center;
+  padding: 2px 9px; font-size: 10px; letter-spacing: .06em;
   background: var(--panel); color: var(--muted); border-radius: 999px;
   white-space: nowrap;
 }
@@ -831,6 +839,7 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
 }
 .name-label + .name-chip { margin-left: 0; }
 .name-chip {
+  min-height: 28px; display: inline-flex; align-items: center;
   padding: 3px 10px; font-size: 12px;
   background: var(--panel); color: var(--text);
   font-family: ui-monospace, Menlo, monospace;

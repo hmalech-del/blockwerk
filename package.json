@@ -1,13 +1,13 @@
 {
   "name": "blockwerk",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Modularer Klangbaukasten im Browser: Sequenzer, Drum-Loops und frei verkettbare Klangbloecke.",
   "private": true,
   "type": "module",
   "license": "MIT",
   "scripts": {
     "serve": "python3 -m http.server 8080",
-    "test": "node tests/offline-render.mjs && node tests/sequencer.mjs && node tests/ideas.mjs && node tests/sampler.mjs && node tests/gesture.mjs && node tests/script.mjs && node tests/live.mjs && node tests/ui-smoke.mjs",
+    "test": "node tests/offline-render.mjs && node tests/sequencer.mjs && node tests/ideas.mjs && node tests/sampler.mjs && node tests/gesture.mjs && node tests/script.mjs && node tests/live.mjs && node tests/ui-smoke.mjs && node tests/ui-budget.mjs",
     "test:dsp": "node tests/offline-render.mjs",
     "test:seq": "node tests/sequencer.mjs",
     "test:ui": "node tests/ui-smoke.mjs",
@@ -15,7 +15,8 @@
     "test:script": "node tests/script.mjs",
     "test:sampler": "node tests/sampler.mjs",
     "test:gesture": "node tests/gesture.mjs",
-    "test:ideas": "node tests/ideas.mjs"
+    "test:ideas": "node tests/ideas.mjs",
+    "test:budget": "node tests/ui-budget.mjs"
   },
   "devDependencies": {
     "playwright": "1.56.1"

@@ -446,7 +446,31 @@ js/
   midi.js        Web MIDI: Drehregler lernen, Noten spielen
   keyboard.js    Bildschirm- und Computertastatur
   app.js         Verdrahtung, Persistenz, Transport-Bedienung
+.claude/
+  agents/        performer, ux, developer – die drei Rollen
+  skills/probe/  /probe: ein Durchlauf der drei, endet bei einem PR
+CLAUDE.md        Spielregeln, die fuer jeden Lauf gelten
+SESSIONS.md      Notizen aus echten Sessions – die einzige Quelle mit Ohren
 ```
+
+## Drei Rollen, die weiterbauen
+
+Im Repo liegen drei Agentendefinitionen: ein **Performer**, der die App als
+Live-Instrument benutzt und Anforderungen stellt; ein **UX-Designer**, dessen
+eigentliche Aufgabe das Nein ist; ein **Developer**, der umsetzt. `/probe`
+fuehrt sie der Reihe nach aus und endet bei einem Pull Request.
+
+Die Einschraenkung, die alles bestimmt: **kein Agent hoert**. Messen koennen
+sie – Zeitstempel, Anschlagstaerken, Pegel, Layout, Bildrate. Ob der Duck
+angenehm pumpt, kann nur ein Mensch mit Kopfhoerern sagen. Deshalb ist
+`SESSIONS.md` keine Beiwerkdatei, sondern der Teil, ohne den die Schleife im
+Kreis laeuft, und deshalb endet jede Probe mit einer beantwortbaren Frage
+statt mit einer Behauptung.
+
+`tests/ui-budget.mjs` macht das zweite Risiko messbar: eine Automatik, die
+Funktionen anhaeuft. Der Test zaehlt die sichtbaren Bedienelemente je Ansicht
+und die Zielgroessen. Wer eine Ansicht wachsen laesst, laesst etwas anderes
+weg – oder hebt die Zahl dort bewusst, sichtbar im Diff.
 
 Drei Entscheidungen tragen den Rest:
 
