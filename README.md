@@ -109,6 +109,24 @@ Unterscheidung läuft über drei Frequenzbänder, ohne FFT.
 Das Runden auf Sechzehntel fängt sowohl die Eingangsverzögerung des Mikrofons
 als auch menschliches Timing ab.
 
+## Tonart: global, mit zwei Ausnahmen
+
+Der **Grundton ist bewusst global**. Darauf beruht das ganze Modell: Schritte
+sind Skalenstufen, keine Halbtöne – deshalb transponiert ein Tonartwechsel das
+laufende Set, und deshalb klingt jede gewürfelte Melodie zum Rest. Ein eigener
+Grundton je Spur wäre kein Satz mehr, sondern zwei Stücke gleichzeitig.
+
+Zwei Abweichungen sind aber musikalisch sinnvoll und je Spur einstellbar:
+
+- **Versatz** verschiebt eine Spur um Skalenstufen, nicht um Halbtöne. Eine
+  Terz über dem Bass bleibt dadurch zwangsläufig in der Tonart – verschoben,
+  aber nie daneben. Auch als Ziel für Live-Regler und Script (`lead.offset`).
+- **Eigene Stimmung** – der klassische Fall ist ein Lead in Pentatonik über
+  einem Moll-Satz: weniger Töne, die alle passen, also mehr Treffer beim
+  Improvisieren. Voreinstellung ist „wie das Set".
+
+Die Oktave gibt es weiterhin zusätzlich; auch sie ist tonartsicher.
+
 ## Zwei Arten zu spielen
 
 Die Live-Ansicht hat zwei Flächen, umschaltbar mit **Pads / Feld**.
@@ -170,8 +188,9 @@ Streifen statt eines Rasters:
   *vorgemerkt* (der Chip blinkt) und erst an der eingestellten Grenze
   übernommen. Erneutes Tippen bestellt den Wechsel wieder ab.
 - **Wechsel** – legt diese Grenze fest: ¼ Takt bis 4 Takte oder „sofort".
-- **Tonart** – Grundton und Stimmung gelten für alle Spuren. Ein Wechsel während
-  des Laufs transponiert das ganze Set.
+- **Tonart** – Grundton und Stimmung gelten für alle Spuren; ein Wechsel während
+  des Laufs transponiert das ganze Set. Je Spur lassen sich im Klang-Reiter
+  **Versatz** und eine **eigene Stimmung** einstellen (siehe unten).
 - **M / S** – Stumm und Solo je Spur.
 - **Klang** – zweiter Reiter: Quelle und Effektkette der ausgewählten Spur.
 - **Klaviatur** – spielt die ausgewählte Spur, Tasten `A W S E D F T G Z H U J K`,

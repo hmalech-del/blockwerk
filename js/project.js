@@ -34,6 +34,16 @@ export function degToMidi(deg, root, scaleName) {
   return root + octave * 12 + scale[index];
 }
 
+// Die eine Stelle, an der aus einer Rasterstufe eine Tonhoehe wird: Grundton
+// und Stimmung kommen vom Set, Versatz, eigene Stimmung und Oktave von der
+// Spur. Einen eigenen Grundton je Spur gibt es bewusst nicht – das waere
+// kein Satz mehr, sondern zwei Stuecke gleichzeitig.
+export function trackMidi(project, track, deg) {
+  const scale = track.scale || project.scale;
+  const step = Math.round(deg + (track.offset || 0));
+  return degToMidi(step, project.root, scale) + (track.octave || 0) * 12;
+}
+
 export function makeClip({ bars = 1, text = null } = {}) {
   return {
     id: uid('c'),
@@ -58,6 +68,10 @@ export function makeTrack(partial = {}) {
     sampleId: partial.sampleId || null,
     mix: { volume: partial.volume ?? 0.8, mute: false, solo: false },
     octave: partial.octave ?? 0,
+    // Versatz in Skalenstufen, nicht in Halbtoenen: so bleibt eine verschobene
+    // Spur zwangslaeufig in der Tonart.
+    offset: partial.offset ?? 0,
+    scale: partial.scale || null,          // null = die Stimmung des Sets
     gate: partial.gate ?? 0.9,
     clips: CLIP_SLOTS.map((_, i) => {
       const text = partial.clips?.[i];
@@ -241,6 +255,8 @@ function normalizeTrack(raw, index) {
   };
   track.sampleId = typeof raw?.sampleId === 'string' ? raw.sampleId : null;
   track.octave = Number.isInteger(raw?.octave) ? Math.max(-3, Math.min(3, raw.octave)) : 0;
+  track.offset = Number.isFinite(raw?.offset) ? Math.max(-14, Math.min(14, Math.round(raw.offset))) : 0;
+  track.scale = SCALES[raw?.scale] ? raw.scale : null;
   track.gate = typeof raw?.gate === 'number' ? Math.max(0.05, Math.min(4, raw.gate)) : 0.9;
   track.clips = CLIP_SLOTS.map((_, i) => normalizeClip(raw?.clips?.[i]));
   if (!track.clips.some(Boolean)) track.clips[0] = makeClip({});

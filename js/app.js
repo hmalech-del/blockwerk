@@ -18,7 +18,7 @@ import { SampleStore, Recorder, equalSlices, detectTransients } from './samples.
 import { Keyboard } from './keyboard.js';
 import { parseSteps, stepsToText } from './pattern.js';
 import {
-  CLIP_SLOTS, SCALES, TRACK_COLORS, applyPreset, degToMidi, demoProject,
+  CLIP_SLOTS, SCALES, TRACK_COLORS, applyPreset, demoProject, trackMidi,
   makeClip, makeProject, makeSample, makeScene, makeTrack, normalizeProject, SOUND_PRESETS,
 } from './project.js';
 import { defaultParams } from './modules.js';
@@ -120,6 +120,8 @@ const rack = new Rack($('#rack'), {
       if (paramId === 'volume') {
         track.mix.volume = value;
         engine.applyMix();
+      } else if (paramId === 'scale') {
+        track.scale = value || null;        // leer heisst: wie das Set
       } else {
         track[paramId] = value;
       }
@@ -161,7 +163,7 @@ const sequencer = new Sequencer($('#sequencer'), {
   onPreview: (track, step) => {
     ensureAudio();
     if (userSuspended) return;
-    const midi = degToMidi(step.deg, project.root, project.scale) + track.octave * 12;
+    const midi = trackMidi(project, track, step.deg);
     engine.noteOn(track.id, midi, undefined, { dur: 0.2, velocity: step.on === 2 ? 1 : 0.7 });
   },
   onRoll: (track, options) => {
@@ -582,7 +584,7 @@ const gestureField = new GestureField({
     if (!track || userSuspended) return;
     ensureAudio();
     applyGestureValue(track, y);
-    const midi = degToMidi(deg, project.root, project.scale) + track.octave * 12;
+    const midi = trackMidi(project, track, deg);
     engine.noteOn(track.id, midi, undefined, { dur: 0.35, velocity: 0.9, deg });
   },
   onMove: (track, y) => applyGestureValue(track, y),

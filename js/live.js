@@ -437,6 +437,7 @@ export function macroTargets(project) {
     const items = [
       { path: `${track.name}.volume`, label: 'Pegel' },
       { path: `${track.name}.gate`, label: 'Notenlänge' },
+      { path: `${track.name}.offset`, label: 'Versatz (Stufen)' },
     ];
     for (const spec of MODULES[track.source.type].params) {
       if (spec.type === 'select') continue;

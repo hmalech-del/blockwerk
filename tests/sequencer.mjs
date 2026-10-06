@@ -48,6 +48,53 @@ check('Akzent und negative Stufe gelesen', pure.accent === 2 && pure.negative ==
 check('Zu kurzer Text wird aufgefüllt, zu langer beschnitten', pure.padded === 16 && pure.truncated === 16);
 check('Skalenstufen rechnen richtig', JSON.stringify(pure.scale) === JSON.stringify([48, 51, 60, 46]), pure.scale.join(','));
 
+// ------------------------------------------- Tonart: global und je Spur
+
+const keys = await page.evaluate(async () => {
+  const { trackMidi } = await import('/js/project.js');
+  const p = window.blockwerk.project();
+  const bass = p.tracks[3];
+  const lead = p.tracks[4];
+  const scaleOf = (track, degs) => degs.map((d) => trackMidi(p, track, d));
+
+  const vorher = scaleOf(bass, [0, 1, 2]);
+
+  // Versatz verschiebt in Stufen – also zwangslaeufig in der Tonart.
+  bass.offset = 2;
+  const versetzt = scaleOf(bass, [0, 1, 2]);
+  const inTonart = versetzt.every((midi) => {
+    const halbton = (((midi - p.root) % 12) + 12) % 12;
+    return [0, 2, 3, 5, 7, 8, 10].includes(halbton);   // Moll
+  });
+  bass.offset = 0;
+
+  // Eigene Stimmung je Spur
+  lead.scale = 'pentaMinor';
+  const pentaSchritte = scaleOf(lead, [0, 1, 2]).map((m, i, a) => m - a[0]);
+  lead.scale = null;
+  const mollSchritte = scaleOf(lead, [0, 1, 2]).map((m, i, a) => m - a[0]);
+
+  // Der Grundton bleibt global: ein Wechsel bewegt alle Spuren gleich
+  const vorWechsel = p.tracks.map((t) => trackMidi(p, t, 0));
+  p.root += 5;
+  const nachWechsel = p.tracks.map((t) => trackMidi(p, t, 0));
+  p.root -= 5;
+
+  return {
+    versatz: versetzt[0] - vorher[0],
+    inTonart,
+    pentaSchritte,
+    mollSchritte,
+    alleGleichVerschoben: nachWechsel.every((m, i) => m - vorWechsel[i] === 5),
+  };
+});
+check('Versatz verschiebt in Skalenstufen', keys.versatz === 3, `${keys.versatz} Halbtöne für 2 Stufen`);
+check('Verschobene Spur bleibt in der Tonart', keys.inTonart);
+check('Eigene Stimmung je Spur wirkt',
+  keys.pentaSchritte.join(',') === '0,3,5' && keys.mollSchritte.join(',') === '0,2,3',
+  `Pentatonik ${keys.pentaSchritte.join(',')} vs. Moll ${keys.mollSchritte.join(',')}`);
+check('Der Grundton bleibt global', keys.alleGleichVerschoben);
+
 // ------------------------------------------------------------ Timing
 
 await page.click('#power');

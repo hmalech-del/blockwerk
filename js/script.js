@@ -251,10 +251,10 @@ function resolveTarget(path, trackByName, willExist = new Set()) {
 
   if (parts.length === 2) {
     const name = parts[1].toLowerCase();
-    if (name === 'volume' || name === 'gate') {
+    if (['volume', 'gate', 'offset'].includes(name)) {
       return { value: { kind: 'track', trackId: track.id, param: name } };
     }
-    return { error: `„${parts[1]}“ gibt es an einer Spur nicht – möglich sind volume und gate.` };
+    return { error: `„${parts[1]}“ gibt es an einer Spur nicht – möglich sind volume, gate und offset.` };
   }
 
   if (parts.length === 3) {
@@ -483,6 +483,8 @@ export class ScriptRunner {
       if (target.param === 'volume') {
         track.mix.volume = clamp(value, 0, 1);
         this.engine.applyMix();
+      } else if (target.param === 'offset') {
+        track.offset = Math.round(clamp(value, -14, 14));
       } else {
         track.gate = clamp(value, 0.05, 4);
       }
@@ -536,9 +538,9 @@ export function targetSpec(project, target) {
   const track = project.tracks.find((t) => t.id === target.trackId);
   if (!track) return { min: 0, max: 1, scale: null };
   if (target.kind === 'track') {
-    return target.param === 'volume'
-      ? { min: 0, max: 1, scale: null }
-      : { min: 0.05, max: 4, scale: 'log' };
+    if (target.param === 'volume') return { min: 0, max: 1, scale: null };
+    if (target.param === 'offset') return { min: -7, max: 7, scale: null };
+    return { min: 0.05, max: 4, scale: 'log' };
   }
   const type = target.kind === 'source' ? track.source.type : target.blockType;
   const spec = MODULES[type]?.params.find((p) => p.id === target.param);
@@ -549,7 +551,11 @@ export function readTarget(project, target) {
   if (target.kind === 'master') return project.master.volume;
   const track = project.tracks.find((t) => t.id === target.trackId);
   if (!track) return 0;
-  if (target.kind === 'track') return target.param === 'volume' ? track.mix.volume : track.gate;
+  if (target.kind === 'track') {
+    if (target.param === 'volume') return track.mix.volume;
+    if (target.param === 'offset') return track.offset || 0;
+    return track.gate;
+  }
   if (target.kind === 'source') return track.source.params[target.param];
   return track.chain.find((b) => b.type === target.blockType)?.params[target.param] ?? 0;
 }

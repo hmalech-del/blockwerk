@@ -149,6 +149,16 @@ await page.waitForTimeout(100);
 await page.selectOption('#presets', '3'); // Kick
 await page.waitForTimeout(100);
 check('Klang-Preset angewendet', (await project()).tracks[5].source.type === 'perc');
+const trackControls = await page.evaluate(() => {
+  const labels = [...document.querySelectorAll('.block-track .param-label')].map((e) => e.textContent.trim());
+  const scaleSelect = [...document.querySelectorAll('.block-track select')]
+    .find((s) => s.options[0]?.textContent.includes('wie das Set'));
+  return { labels, hatStimmung: !!scaleSelect, erste: scaleSelect?.options[0].textContent };
+});
+check('Spur hat Versatz und eigene Stimmung',
+  trackControls.labels.includes('Versatz') && trackControls.hatStimmung,
+  trackControls.labels.join(', '));
+
 const octaveText = await page.evaluate(() => {
   const label = [...document.querySelectorAll('.block-track .param')]
     .find((el) => el.querySelector('.param-label')?.textContent.trim() === 'Oktave');

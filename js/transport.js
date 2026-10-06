@@ -3,7 +3,7 @@
 // fällig sind, und diese werden mit exaktem AudioContext-Zeitstempel
 // vorausgeplant. Die Audio-Uhr bestimmt den Groove, nicht der Timer.
 
-import { degToMidi, STEPS_PER_BAR } from './project.js';
+import { STEPS_PER_BAR, trackMidi } from './project.js';
 import { eventsAtStep } from './gesture.js';
 
 const INTERVAL_MS = 25;
@@ -101,7 +101,7 @@ export class Transport {
       const cell = clip.steps[step % clip.steps.length];
       if (!cell || !cell.on) continue;
 
-      const midi = degToMidi(cell.deg, project.root, project.scale) + track.octave * 12;
+      const midi = trackMidi(project, track, cell.deg);
       const record = this.engine.noteOn(track.id, midi, time + swingOffset, {
         dur: Math.max(0.02, track.gate * stepDur),
         velocity: cell.on === 2 ? 1 : 0.68,
@@ -114,7 +114,7 @@ export class Transport {
     for (const track of project.tracks) {
       for (const event of eventsAtStep(track, step)) {
         const offset = (event.t - (step % Math.max(1, this.loopFor(track)))) * stepDur;
-        const midi = degToMidi(event.deg, project.root, project.scale) + track.octave * 12;
+        const midi = trackMidi(project, track, event.deg);
         const record = this.engine.noteOn(track.id, midi, time + Math.max(0, offset), {
           dur: Math.max(0.03, event.dur * stepDur),
           velocity: 0.9,

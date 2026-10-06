@@ -2,7 +2,8 @@
 // Umsortieren per Drag & Drop oder mit ◀ ▶ am Block.
 
 import { MODULES, SOURCES, EFFECTS, defaultParams } from './modules.js';
-import { uid } from './project.js';
+import { SCALES, uid } from './project.js';
+import { MOODS } from './ideas.js';
 
 const SLIDER_STEPS = 1000;
 
@@ -34,7 +35,14 @@ export function formatValue(spec, value) {
 const TRACK_PARAMS = [
   { id: 'volume', label: 'Pegel', min: 0, max: 1, def: 0.8 },
   { id: 'octave', label: 'Oktave', min: -3, max: 3, def: 0, step: 1 },
+  // Versatz in Stufen statt Halbtoenen: verschoben, aber nie daneben.
+  { id: 'offset', label: 'Versatz', min: -7, max: 7, def: 0, step: 1 },
   { id: 'gate', label: 'Notenlänge', min: 0.05, max: 4, def: 0.9, scale: 'log' },
+  {
+    id: 'scale', label: 'Stimmung', type: 'select', def: '',
+    options: [{ value: '', label: 'wie das Set' }]
+      .concat(MOODS.map((m) => ({ value: m.scale, label: `${m.label} (${SCALES[m.scale].label})` }))),
+  },
 ];
 
 function paramMarkup(scope, blockId, spec, value) {
@@ -114,7 +122,8 @@ export class Rack {
           <span class="param-label">Name</span>
           <input type="text" data-act="track-name" value="${track.name.replace(/"/g, '&quot;')}">
         </label>
-        ${TRACK_PARAMS.map((spec) => paramMarkup('track', 'track', spec, spec.id === 'volume' ? track.mix.volume : track[spec.id])).join('')}`,
+        ${TRACK_PARAMS.map((spec) => paramMarkup('track', 'track', spec,
+          spec.id === 'volume' ? track.mix.volume : (track[spec.id] ?? spec.def))).join('')}`,
     });
 
     const srcDef = MODULES[track.source.type];
