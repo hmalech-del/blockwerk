@@ -193,9 +193,10 @@ export class Live {
     const xOf = (step) => gutter + (step - originStep) * pxPerStep;
 
     ctx.clearRect(0, 0, width, height);
+    ctx.shadowBlur = 0;
 
     // Taktlinien
-    ctx.strokeStyle = 'rgba(139, 147, 168, .22)';
+    ctx.strokeStyle = 'rgba(122, 107, 255, .25)';
     ctx.lineWidth = 1;
     const firstBar = Math.floor(originStep / STEPS_PER_BAR) * STEPS_PER_BAR;
     for (let s = firstBar; s < originStep + VISIBLE_STEPS + STEPS_PER_BAR; s += STEPS_PER_BAR) {
@@ -208,7 +209,7 @@ export class Live {
     }
 
     // Zukunft leicht abheben
-    ctx.fillStyle = 'rgba(122, 162, 255, .05)';
+    ctx.fillStyle = 'rgba(45, 226, 255, .05)';
     ctx.fillRect(playheadX, 12, width - playheadX, height - 18);
 
     if (this.compact) {
@@ -240,12 +241,12 @@ export class Live {
       const y = 14 + row * rowHeight;
       const barH = rowHeight - 10;
 
-      ctx.fillStyle = 'rgba(232, 236, 245, .62)';
+      ctx.fillStyle = 'rgba(234, 242, 255, .7)';
       ctx.font = '11px ui-monospace, Menlo, monospace';
       ctx.textBaseline = 'middle';
       ctx.fillText(track.name.slice(0, Math.max(4, Math.floor(gutter / 8))), 5, y + barH / 2);
 
-      ctx.fillStyle = 'rgba(139, 147, 168, .10)';
+      ctx.fillStyle = 'rgba(122, 107, 255, .14)';
       ctx.fillRect(gutter, y, lane, barH);
 
       for (let s = Math.max(0, Math.floor(originStep)); s < originStep + VISIBLE_STEPS + 1; s++) {
@@ -262,6 +263,8 @@ export class Live {
         const w = Math.max(3, pxPerStep * 0.72);
         ctx.globalAlpha = muted ? 0.18 : (future ? 0.95 : 0.4);
         ctx.fillStyle = track.color;
+        ctx.shadowColor = track.color;
+        ctx.shadowBlur = future && !muted ? 10 : 0;
         const h = cell.on === 2 ? barH : barH * 0.66;
         ctx.fillRect(x, y + (barH - h) / 2, w, h);
 
@@ -269,19 +272,22 @@ export class Live {
         // bevor er klingt.
         if (queuedPart) {
           ctx.globalAlpha = 1;
-          ctx.strokeStyle = '#6ee7c7';
+          ctx.strokeStyle = '#9dff3d';
           ctx.lineWidth = 1;
           ctx.strokeRect(Math.round(x) + 0.5, Math.round(y + (barH - h) / 2) + 0.5, Math.round(w), Math.round(h));
         }
       }
       ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
     });
 
     // Wechselmarke
     if (transport.playing && project.tracks.some((t) => t.queued !== null || t.queuedMute !== null)) {
       const x = xOf(switchStep);
       if (x > gutter && x < width) {
-        ctx.strokeStyle = '#6ee7c7';
+        ctx.strokeStyle = '#9dff3d';
+        ctx.shadowColor = '#9dff3d';
+        ctx.shadowBlur = 12;
         ctx.setLineDash([4, 4]);
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -293,13 +299,16 @@ export class Live {
     }
 
     // Spielkopf
-    ctx.strokeStyle = transport.playing ? '#e8ecf5' : 'rgba(232, 236, 245, .35)';
+    ctx.strokeStyle = transport.playing ? '#ffffff' : 'rgba(234, 242, 255, .35)';
+    ctx.shadowColor = '#2de2ff';
+    ctx.shadowBlur = transport.playing ? 16 : 0;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(playheadX, 4);
     ctx.lineTo(playheadX, height - 2);
     ctx.stroke();
 
+    ctx.shadowBlur = 0;
     const nowLabel = this.el.querySelector('.now-label');
     if (nowLabel && this._labelX !== playheadX) {
       nowLabel.style.marginLeft = `${Math.round(playheadX - 16)}px`;

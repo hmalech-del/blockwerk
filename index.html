@@ -9,15 +9,9 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>▦</text></svg>">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="logo">▦</span>
-      <div class="brand-text">
-        <h1>Blockwerk</h1>
-        <p>Modularer Klangbaukasten</p>
-      </div>
-    </div>
+  <canvas id="backdrop" aria-hidden="true"></canvas>
 
+  <header class="topbar">
     <div class="transport">
       <button id="power" class="power">Audio starten</button>
 
@@ -58,6 +52,13 @@
   </header>
 
   <nav class="tabs">
+    <div class="brand">
+      <span class="logo">▦</span>
+      <div class="brand-text">
+        <h1>Blockwerk</h1>
+        <p>Modularer Klangbaukasten</p>
+      </div>
+    </div>
     <button data-view="live" class="on">Live</button>
     <button data-view="seq">Sequenzer</button>
     <button data-view="sound">Klang</button>

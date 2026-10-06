@@ -8,6 +8,25 @@ Ein Werkzeug für Live-Auftritte auf einem 10-Zoll-Tablet oder Laptop: Loops
 vorbereiten, im Set umschalten, den Ablauf als Text schreiben – und ihn
 jederzeit von Hand überstimmen.
 
+## Aussehen
+
+Neon auf Tiefblau, Gitterhorizont, Leuchtkanten – und ein Hintergrund, der
+**mitatmet**: eine Leinwand hinter der Oberfläche zeichnet live aus dem
+Master-Analyser (Wellenform, Spektrumband), dazu ein perspektivisches Raster.
+Läuft nichts, bewegt sie sich langsam weiter; ein Instrument soll auch im
+Leerlauf lebendig aussehen. Das Logo pulsiert auf der Zählzeit.
+
+Dabei gilt: Leuchtfarben sind für Ränder, Zustände und Kanten da, Fließtext
+bleibt fast weiß. Wer `prefers-reduced-motion` gesetzt hat, bekommt den
+Hintergrund ruhig.
+
+Zwei Effekte sind bewusst **nicht** drin, obwohl sie gut aussähen:
+`backdrop-filter` auf den Flächen (kostete gemessen 16 Bilder je Sekunde, weil
+jede Fläche den bewegten Hintergrund neu weichzeichnet) und ein
+`mix-blend-mode`-Overlay für die Zeilenstruktur (nochmal 24). Beide zusammen
+hatten die Bildrate von 60 auf 19 gedrückt. Der Live-Test misst die Bildrate
+jetzt mit.
+
 ## Ausprobieren
 
 Die App braucht einen Webserver, weil sie ES-Module lädt (`file://` reicht nicht):

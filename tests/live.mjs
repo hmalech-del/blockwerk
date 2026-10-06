@@ -132,6 +132,26 @@ const recovered = await page.evaluate(async () => {
 check('Nach Unterbrechung wieder aufnehmbar',
   recovered.suspended === 'suspended' && recovered.after === 'running');
 
+// ----------------------------------------------------------- Bildrate
+
+// Ein Live-Werkzeug darf nicht ruckeln. Die Schwelle liegt bewusst tief
+// (headless ohne Grafikbeschleunigung), faengt aber jede grobe Regression:
+// backdrop-filter und mix-blend-mode haben die Rate schon einmal gedrittelt.
+await page.evaluate(() => window.blockwerk.transport.start());
+await page.waitForTimeout(400);
+const frames = await page.evaluate(() => new Promise((resolve) => {
+  let count = 0;
+  const started = performance.now();
+  const tick = () => {
+    count += 1;
+    if (performance.now() - started < 1500) requestAnimationFrame(tick);
+    else resolve(Math.round(count / ((performance.now() - started) / 1000)));
+  };
+  requestAnimationFrame(tick);
+}));
+await page.evaluate(() => window.blockwerk.transport.stop());
+check('Die Oberfläche läuft flüssig', frames >= 35, `${frames} Bilder je Sekunde`);
+
 // ------------------------------------------------ Zuverlaessigkeit der Szenen
 
 // Musiker tippen kurz VOR der Eins. Der Scheduler hat die Taktgrenze dann

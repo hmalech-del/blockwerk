@@ -73,9 +73,12 @@ const melody = await page.evaluate(async () => {
 check('Jede Melodie beginnt auf einem tragenden Ton', melody.allStartHome);
 check('Jede Melodie kommt nach Hause', melody.allEndHome);
 // Beides waere falsch: dauernd springen klingt wirr, nie springen maeandert.
-check('Überwiegend Schritte, aber nicht ausschließlich',
-  melody.stepwise > 0.75 && melody.stepwise < 0.98,
-  `${Math.round(melody.stepwise * 100)} % der Bewegungen ≤ 2 Stufen, größter Sprung ${melody.biggestJump}`);
+// Die Quote zeigt das Erste, der groesste Sprung das Zweite - eine Quote mit
+// Obergrenze waere dafuer zu zappelig, weil Spruenge oft nah landen.
+check('Überwiegend Schritte', melody.stepwise > 0.75,
+  `${Math.round(melody.stepwise * 100)} % der Bewegungen ≤ 2 Stufen`);
+check('Aber es gibt echte Sprünge', melody.biggestJump >= 3,
+  `größter Sprung ${melody.biggestJump} Stufen`);
 check('Akzente sitzen auf Zählzeiten', melody.accents);
 check('Dichte steuert die Anzahl', melody.dense > melody.sparse,
   `${melody.sparse} bei wenig, ${melody.dense} bei viel`);

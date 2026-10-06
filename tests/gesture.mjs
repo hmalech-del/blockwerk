@@ -115,18 +115,32 @@ const looped = await page.evaluate(async () => {
 });
 check('Die Schleife spielt ohne Zutun weiter', looped >= 3, `${looped} Anschläge in 3 s`);
 
-// Senkrechtes Ziel
+// Senkrechtes Ziel – über eine volle Schleife beobachtet, denn eine Geste
+// deckt nur den Abschnitt ab, über den die Hand gefahren ist.
 const target = await page.evaluate(async () => {
-  const { project, gestureField } = window.blockwerk;
+  const { project, gestureField, transport } = window.blockwerk;
   const track = project().tracks[3];
   gestureField.hooks.onTarget(track, 'Bass.filter.freq');
-  const before = track.chain.find((b) => b.type === 'filter').params.freq;
-  await new Promise((r) => setTimeout(r, 1200));
-  const after = track.chain.find((b) => b.type === 'filter').params.freq;
-  return { before: Math.round(before), after: Math.round(after) };
+  const freq = () => track.chain.find((b) => b.type === 'filter').params.freq;
+
+  const start = freq();
+  const seen = [start];
+  const bars = 16 / (project().tempo / 60 / 4) / 16;   // Sekunden je Takt
+  const until = Date.now() + bars * 2200;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 60));
+    seen.push(freq());
+  }
+  return {
+    start: Math.round(start),
+    min: Math.round(Math.min(...seen)),
+    max: Math.round(Math.max(...seen)),
+    playing: transport.playing,
+  };
 });
-check('Der senkrechte Weg regelt das gewählte Ziel', target.before !== target.after,
-  `${target.before} Hz → ${target.after} Hz`);
+check('Der senkrechte Weg regelt das gewählte Ziel',
+  target.max - target.min > 20,
+  `${target.min}–${target.max} Hz im Verlauf einer Schleife`);
 
 // Rückgängig und Leeren
 await page.evaluate(() => window.blockwerk.transport.stop());

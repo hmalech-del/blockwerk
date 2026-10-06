@@ -240,17 +240,20 @@ export class GestureField {
     const track = this.track;
     if (!canvas || !canvas.clientWidth || !track) return;
 
+    // Die Hoehe gehoert dem Stylesheet. Lesen und zurueckschreiben waere eine
+    // Rueckkopplung: mit border-box schrumpft die Flaeche dann jeden Frame.
     const width = canvas.clientWidth;
-    const height = canvas.clientHeight || 260;
+    const height = Math.round(canvas.getBoundingClientRect().height) || 260;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (canvas.style.height !== `${height}px`) canvas.style.height = `${height}px`;
     if (canvas.width !== Math.round(width * dpr)) {
       canvas.width = Math.round(width * dpr);
       canvas.height = Math.round(height * dpr);
     }
+    if (canvas.height !== Math.round(height * dpr)) canvas.height = Math.round(height * dpr);
     const ctx = this.ctx2d;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
+    ctx.shadowBlur = 0;
 
     const columns = columnsFor(track, this.project);
     const loop = loopSteps(track);
@@ -258,10 +261,10 @@ export class GestureField {
     const colWidth = width / columns;
 
     for (let c = 0; c < columns; c++) {
-      ctx.fillStyle = c % 2 ? 'rgba(255,255,255,.035)' : 'rgba(255,255,255,.015)';
+      ctx.fillStyle = c % 2 ? 'rgba(122,107,255,.10)' : 'rgba(45,226,255,.04)';
       ctx.fillRect(c * colWidth, 0, colWidth, height);
       if (colWidth > 22) {
-        ctx.fillStyle = 'rgba(139,147,168,.55)';
+        ctx.fillStyle = 'rgba(130,149,212,.7)';
         ctx.font = '10px ui-monospace, Menlo, monospace';
         ctx.fillText(String(c), c * colWidth + 4, height - 6);
       }
@@ -271,8 +274,11 @@ export class GestureField {
     const takes = track.gesture?.takes || [];
     takes.forEach((take, i) => {
       if (take.points.length < 2) return;
-      ctx.strokeStyle = i === takes.length - 1 ? 'rgba(110,231,199,.75)' : 'rgba(122,162,255,.4)';
-      ctx.lineWidth = i === takes.length - 1 ? 2 : 1.5;
+      const newest = i === takes.length - 1;
+      ctx.strokeStyle = newest ? 'rgba(45,226,255,.9)' : 'rgba(255,43,209,.5)';
+      ctx.shadowColor = newest ? '#2de2ff' : '#ff2bd1';
+      ctx.shadowBlur = newest ? 16 : 8;
+      ctx.lineWidth = newest ? 2.5 : 1.5;
       ctx.beginPath();
       take.points.forEach((p, k) => {
         const x = p.x * width;
@@ -287,7 +293,9 @@ export class GestureField {
     for (const take of takes) {
       const point = pointAt(take.points, position);
       if (!point) continue;
-      ctx.fillStyle = 'rgba(110,231,199,.9)';
+      ctx.fillStyle = '#9dff3d';
+      ctx.shadowColor = '#9dff3d';
+      ctx.shadowBlur = 18;
       ctx.beginPath();
       ctx.arc(point.x * width, (1 - point.y) * height, 6, 0, Math.PI * 2);
       ctx.fill();
@@ -296,13 +304,16 @@ export class GestureField {
     for (const stroke of this.pointers.values()) {
       const last = stroke.points[stroke.points.length - 1];
       ctx.fillStyle = '#fff';
+      ctx.shadowColor = '#2de2ff';
+      ctx.shadowBlur = 26;
       ctx.beginPath();
       ctx.arc(last.x * width, (1 - last.y) * height, 11, 0, Math.PI * 2);
       ctx.fill();
     }
 
     // Fortschritt der Schleife als schmaler Balken oben.
-    ctx.fillStyle = 'rgba(110,231,199,.5)';
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(157,255,61,.65)';
     ctx.fillRect(0, 0, (position / loop) * width, 3);
   }
 }

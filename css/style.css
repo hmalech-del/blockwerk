@@ -1,19 +1,27 @@
 :root {
-  --bg: #0d0f14;
-  --bg-2: #141824;
-  --panel: #1a1f2e;
-  --panel-2: #212739;
-  --line: #2b3247;
-  --text: #e8ecf5;
-  --muted: #8b93a8;
-  --accent: #6ee7c7;
-  --accent-2: #7aa2ff;
-  --source: #f0a35e;
-  --fx: #7aa2ff;
-  --out: #6ee7c7;
-  --danger: #ff6b7a;
+  /* Neon auf Tiefblau. Text bleibt fast weiss – Leuchtfarben sind fuer
+     Raender, Zustaende und Kanten da, nicht fuer Fliesstext. */
+  --bg: #070b1e;
+  --bg-2: #0c1230;
+  --panel: #111a3f;
+  --panel-2: #18224f;
+  --line: #2a3a7a;
+  --text: #eaf2ff;
+  --muted: #8295d4;
+
+  --neon: #2de2ff;
+  --neon-2: #ff2bd1;
+  --neon-3: #9dff3d;
+  --accent: var(--neon);
+  --accent-2: #7a6bff;
+  --source: #ffb13d;
+  --fx: #7a6bff;
+  --out: #9dff3d;
+  --danger: #ff3b6b;
+
   --radius: 14px;
-  --shadow: 0 12px 30px rgba(0, 0, 0, .45);
+  --shadow: 0 10px 34px rgba(0, 0, 0, .55);
+  --glow: 0 0 14px;
 }
 
 * { box-sizing: border-box; }
@@ -21,10 +29,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(1100px 600px at 12% -10%, #1d2436 0%, transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, #1a2330 0%, transparent 55%),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
@@ -53,7 +58,6 @@ kbd {
   justify-content: space-between;
   padding: 10px clamp(14px, 3vw, 32px);
   background: rgba(13, 15, 20, .82);
-  backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
 }
 
@@ -490,11 +494,15 @@ button.small { padding: 5px 10px; font-size: 12px; }
   .live {
     grid-template-columns: minmax(0, 1fr) 200px;
     grid-template-areas:
-      "strip strip"
-      "pads scenes";
+      "strip  strip"
+      "mode   scenes"
+      "pads   scenes"
+      "macros scenes";
     align-items: start;
   }
   .strip-wrap { grid-area: strip; }
+  .mode-switch { grid-area: mode; }
+  .macros { grid-area: macros; }
   .pads { grid-area: pads; }
   .scene-bar {
     grid-area: scenes;
@@ -509,7 +517,12 @@ button.small { padding: 5px 10px; font-size: 12px; }
     grid-template-columns: 1fr;
     grid-template-areas: none;
   }
+  /* Im Feldmodus gelten keine benannten Flaechen mehr – sonst landen
+     Moduswechsel und Regler in impliziten Zeilen am Ende. */
   .live.field-mode .strip-wrap,
+  .live.field-mode .mode-switch,
+  .live.field-mode .macros,
+  .live.field-mode .pads,
   .live.field-mode .scene-bar { grid-area: auto; }
   .live.field-mode .scene-bar { flex-direction: row; align-items: center; }
   .live.field-mode .scene-bar .scene { width: auto; }
@@ -642,7 +655,7 @@ button.small { padding: 5px 10px; font-size: 12px; }
   width: 100%;
   /* Die Spielflaeche muss ohne Scrollen erreichbar sein – deshalb nimmt sie,
      was das Fenster hergibt, statt einer festen Hoehe. */
-  height: clamp(190px, calc(100vh - 330px), 420px);
+  height: clamp(170px, calc(100vh - 445px), 420px);
   touch-action: none;
   border-radius: var(--radius);
   background:
@@ -1043,4 +1056,274 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
   .live { gap: 10px; }
   .pad, .pad-name { padding-top: 8px; padding-bottom: 8px; }
   .strip-wrap { padding: 6px 10px 4px; }
+}
+
+
+/* =========================================================================
+   Neon. Alles ab hier legt sich ueber die Grundform: Leuchtkanten,
+   Glasflaechen, Rasterhorizont. Die Grundregeln oben bleiben lesbar, falls
+   man das Leuchten je wieder abziehen will.
+   ========================================================================= */
+
+#backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .85;
+}
+
+/* Feine Zeilen wie auf einer Roehre – nur angedeutet. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  /* Ohne mix-blend-mode: der Mischmodus zwang die ganze Seite in jedem Bild
+     neu zusammenzusetzen und kostete 24 Bilder je Sekunde. */
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(150, 200, 255, .028) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+.topbar, .tabs, main, footer { position: relative; z-index: 2; }
+
+body {
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: .01em;
+}
+
+/* ------------------------------------------------------------- Kopfzeile */
+
+.topbar {
+  background: linear-gradient(180deg, rgba(7, 11, 30, .92), rgba(7, 11, 30, .72));
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, var(--neon), var(--neon-2), var(--neon-3)) 1;
+  box-shadow: 0 1px 24px rgba(45, 226, 255, .18);
+}
+
+.brand .logo {
+  background: linear-gradient(140deg, var(--neon), var(--neon-2));
+  box-shadow: var(--glow) rgba(45, 226, 255, .55);
+  color: #06091a;
+}
+.brand h1 {
+  text-transform: uppercase;
+  letter-spacing: .18em;
+  font-weight: 800;
+  background: linear-gradient(90deg, var(--neon), var(--neon-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.brand p { letter-spacing: .14em; text-transform: uppercase; font-size: 10px; }
+
+/* ------------------------------------------------------- Flaechen, Knoepfe */
+
+.ctrl, .switch, .position, .block, .strip-wrap, .wave-wrap, .macro, .idea-bar,
+.script-text, .script-errors, .keys, .field, .clip-text {
+  /* Bewusst ohne backdrop-filter: eine Weichzeichnung je Flaeche ueber einem
+     bewegten Hintergrund kostete gemessen 16 Bilder je Sekunde. Etwas mehr
+     Deckkraft sieht fast gleich aus und ist umsonst. */
+  background: linear-gradient(180deg, rgba(24, 34, 79, .9), rgba(12, 18, 48, .92));
+  border-color: rgba(122, 107, 255, .35);
+}
+
+button {
+  background: linear-gradient(180deg, rgba(24, 34, 79, .9), rgba(12, 18, 48, .9));
+  border-color: rgba(122, 107, 255, .4);
+  letter-spacing: .02em;
+}
+button:hover {
+  border-color: var(--neon);
+  color: var(--text);
+  box-shadow: var(--glow) rgba(45, 226, 255, .35);
+}
+.ghost { background: transparent; border-color: rgba(122, 107, 255, .28); }
+
+.power {
+  background: linear-gradient(140deg, var(--neon), var(--accent-2));
+  color: #06091a;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  font-size: 13px;
+  box-shadow: var(--glow) rgba(45, 226, 255, .5);
+}
+.power.on {
+  background: transparent;
+  color: var(--neon);
+  border: 1px solid var(--neon);
+  box-shadow: var(--glow) rgba(45, 226, 255, .3), inset 0 0 18px rgba(45, 226, 255, .12);
+}
+.play {
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  border-color: var(--neon-3);
+  color: var(--neon-3);
+  box-shadow: inset 0 0 16px rgba(157, 255, 61, .1);
+}
+.play.on {
+  background: var(--neon-3);
+  color: #06091a;
+  box-shadow: var(--glow) rgba(157, 255, 61, .55);
+}
+.rec { border-color: var(--neon-2); color: var(--neon-2); }
+.rec.on { background: var(--neon-2); color: #06091a; box-shadow: var(--glow) rgba(255, 43, 209, .6); }
+
+.ring { box-shadow: inset 0 0 0 1px rgba(122, 107, 255, .5), var(--glow) rgba(45, 226, 255, .25); }
+
+/* ---------------------------------------------------------------- Reiter */
+
+.tabs {
+  background: rgba(7, 11, 30, .55);
+  border-bottom: 1px solid rgba(122, 107, 255, .25);
+}
+.tabs > button {
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  font-size: 12px;
+  font-weight: 700;
+}
+.tabs > button.on {
+  color: var(--neon);
+  border-color: var(--neon);
+  box-shadow: var(--glow) rgba(45, 226, 255, .3), inset 0 0 16px rgba(45, 226, 255, .1);
+  text-shadow: 0 0 10px rgba(45, 226, 255, .8);
+}
+.section-head h2 {
+  color: var(--neon);
+  text-shadow: 0 0 14px rgba(45, 226, 255, .45);
+  letter-spacing: .2em;
+}
+
+/* ------------------------------------------------------------- Sequenzer */
+
+.cell { border-color: rgba(122, 107, 255, .25); }
+.cell.downbeat { background: rgba(122, 107, 255, .16); }
+.cell.on {
+  box-shadow: var(--glow) color-mix(in srgb, var(--track) 60%, transparent),
+              inset 0 0 10px rgba(255, 255, 255, .18);
+}
+.cell.accent { box-shadow: 0 0 20px var(--track), inset 0 0 0 2px rgba(255, 255, 255, .65); }
+.cell.now { outline-color: #fff; box-shadow: 0 0 24px rgba(255, 255, 255, .5); }
+
+.track.selected { border-color: var(--track); box-shadow: inset 0 0 26px color-mix(in srgb, var(--track) 18%, transparent); }
+.track-name .dot, .pad-name, .field-track .dot { box-shadow: var(--glow) var(--track); }
+
+.clip-chip.active, .pad.active {
+  box-shadow: var(--glow) color-mix(in srgb, var(--track) 70%, transparent);
+  color: #06091a;
+}
+.clip-chip.queued, .pad.queued {
+  border-color: var(--neon-3);
+  color: var(--neon-3);
+  box-shadow: var(--glow) rgba(157, 255, 61, .5);
+}
+.flag.on { box-shadow: var(--glow) rgba(255, 59, 107, .5); }
+.flag.on.solo { box-shadow: var(--glow) rgba(45, 226, 255, .5); }
+
+/* ----------------------------------------------------------------- Live */
+
+.scene {
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: 13px;
+}
+.scene:hover { box-shadow: var(--glow) rgba(45, 226, 255, .4); text-shadow: 0 0 10px rgba(45, 226, 255, .7); }
+.scene-key { background: rgba(122, 107, 255, .25); color: var(--neon); }
+.mode-switch button.on { box-shadow: var(--glow) rgba(45, 226, 255, .35); text-shadow: 0 0 10px rgba(45, 226, 255, .7); }
+
+.field {
+  background:
+    radial-gradient(130% 100% at 50% 0%, rgba(255, 43, 209, .12), transparent 65%),
+    linear-gradient(180deg, rgba(24, 34, 79, .85), rgba(10, 15, 40, .9));
+  border-color: rgba(45, 226, 255, .35);
+  box-shadow: inset 0 0 50px rgba(45, 226, 255, .08), var(--shadow);
+}
+
+.macro-value, .param-value, .idea-status, .field-count, .next-label {
+  text-shadow: 0 0 10px rgba(45, 226, 255, .5);
+}
+
+/* ---------------------------------------------------------- Klaviatur */
+
+.key.white { background: linear-gradient(180deg, #dfe8ff, #9fb0e8); border-color: #6476b5; color: #1a2347; }
+.key.white.on { background: linear-gradient(180deg, var(--neon), #14b6d6); box-shadow: 0 0 24px var(--neon); }
+.key.black { background: linear-gradient(180deg, #1b2450, #080c22); border-color: #05070f; }
+.key.black.on { background: linear-gradient(180deg, var(--neon-2), #a81789); box-shadow: 0 0 24px var(--neon-2); }
+
+/* ------------------------------------------------------------- Ideen */
+
+.idea-bar {
+  background:
+    linear-gradient(90deg, rgba(255, 43, 209, .14), rgba(45, 226, 255, .08) 45%, transparent 75%);
+  border-color: rgba(255, 43, 209, .35);
+}
+.idea-label { color: var(--neon-2); text-shadow: 0 0 10px rgba(255, 43, 209, .5); }
+
+/* -------------------------------------------------------------- Rest */
+
+.meter i { background: linear-gradient(90deg, var(--neon-3), var(--neon) 60%, var(--neon-2)); }
+.link { background: linear-gradient(90deg, transparent, var(--neon)); box-shadow: var(--glow) rgba(45, 226, 255, .35); }
+.link::after { border-left-color: var(--neon); }
+.block { border-top-width: 2px; }
+.block-fx { border-top-color: var(--fx); }
+
+input[type="range"]::-webkit-slider-thumb { box-shadow: 0 0 12px var(--neon); }
+input[type="range"]::-moz-range-thumb { box-shadow: 0 0 12px var(--neon); }
+input[type="range"]::-webkit-slider-runnable-track { border-color: rgba(122, 107, 255, .4); }
+
+@media (prefers-reduced-motion: reduce) {
+  #backdrop { opacity: .55; }
+}
+
+
+/* Schriftzug in der Reiterzeile – die Kopfzeile gehoert dem Transport. */
+.tabs .brand { margin-right: 18px; gap: 10px; }
+.tabs .brand .logo {
+  width: 30px;
+  height: 30px;
+  font-size: 17px;
+  /* Pulsiert im Takt: --beat kommt aus der Zeichenschleife. */
+  transform: scale(calc(1 + var(--beat, 0) * .10));
+  box-shadow: 0 0 calc(10px + var(--beat, 0) * 22px) rgba(45, 226, 255, .65);
+  transition: none;
+}
+.tabs .brand h1 { font-size: 15px; letter-spacing: .22em; }
+.tabs .brand p { display: none; }
+
+@media (max-width: 1600px) { .brand-text { display: block; } }
+@media (max-width: 720px) {
+  .tabs .brand { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tabs .brand .logo { transform: none; }
+}
+
+
+/* Im Feldmodus zaehlt jeder Pixel: die Flaeche soll ohne Scrollen erreichbar
+   bleiben, auch wenn Kopfzeile und Reiter ihren Platz brauchen. */
+.live.field-mode { gap: 8px; }
+.live.field-mode .mode-switch { margin-bottom: -2px; }
+
+
+/* Versalien und Sperrung machen die Beschriftungen breiter – die festen
+   Breiten muessen mitwachsen, sonst springt die Leiste beim ersten Tippen
+   wieder zur Seite (und der Klick landet daneben). */
+.power { min-width: 182px; }
+.play { min-width: 124px; }
+@media (max-width: 1700px) {
+  .play { min-width: 116px; }
+}
+
+
+/* Unter 1340 px wird die Beschriftung kleiner statt die Leiste zweizeilig. */
+@media (max-width: 1340px) {
+  .power { min-width: 162px; font-size: 11px; letter-spacing: .06em; }
+  .play { min-width: 104px; font-size: 12px; }
 }

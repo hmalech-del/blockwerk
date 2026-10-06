@@ -1,5 +1,6 @@
 // Verdrahtung: Projektzustand, Engine, Transport, Ansichten, Eingaben.
 
+import { Backdrop } from './backdrop.js';
 import { Engine } from './engine.js';
 import { Transport } from './transport.js';
 import { Rack, renderPalette } from './rack.js';
@@ -29,6 +30,7 @@ const $ = (sel) => document.querySelector(sel);
 
 const samples = new SampleStore();
 const engine = new Engine(samples);
+const backdrop = new Backdrop(document.querySelector('#backdrop'), engine);
 let recorder = null;
 let selectedSampleId = null;
 let project = loadProject();
@@ -983,13 +985,22 @@ updatePower();
 updatePlay();
 
 window.blockwerk = {
-  engine, transport, samples, gestureField, project: () => project,
+  engine, transport, samples, gestureField, backdrop, project: () => project,
   get beatboxing() { return beatboxing; },
   sequencer, live, rack, script, scriptView, samplerView, keyboard, CLIP_SLOTS,
   addSample: (name, data, rate) => addSample(name, { data, sampleRate: rate }),
 };
 
+// Der Herzschlag der Oberflaeche: ein kurzer Puls auf jeder Zaehlzeit.
+const root = document.documentElement;
 (function frame() {
+  backdrop.draw();
+  if (transport.playing) {
+    const beat = transport.position() / 4;
+    root.style.setProperty('--beat', (1 - (beat % 1)) ** 3.5);
+  } else if (root.style.getPropertyValue('--beat') !== '0') {
+    root.style.setProperty('--beat', '0');
+  }
   if (transport.playing) {
     script.updateRamps(transport.position());
     // Der senkrechte Verlauf aufgenommener Gesten laeuft weich mit.

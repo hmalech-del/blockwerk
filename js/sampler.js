@@ -118,6 +118,7 @@ export class SamplerView {
     const ctx = this.ctx2d;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, HEIGHT);
+    ctx.shadowBlur = 0;
 
     if (!buffer) {
       ctx.fillStyle = 'rgba(139,147,168,.6)';
@@ -136,11 +137,13 @@ export class SamplerView {
     // Slices abwechselnd hinterlegen, damit man die Grenzen auch ohne Marke sieht.
     sample.slices.forEach((start, i) => {
       const { end } = sliceBounds(sample, i);
-      ctx.fillStyle = i % 2 ? 'rgba(122,162,255,.07)' : 'rgba(110,231,199,.07)';
+      ctx.fillStyle = i % 2 ? 'rgba(255,43,209,.08)' : 'rgba(45,226,255,.06)';
       ctx.fillRect(toX(start), 0, toX(end) - toX(start), HEIGHT);
     });
 
-    ctx.strokeStyle = 'rgba(232,236,245,.75)';
+    ctx.strokeStyle = 'rgba(45,226,255,.85)';
+    ctx.shadowColor = '#2de2ff';
+    ctx.shadowBlur = 8;
     ctx.beginPath();
     for (let x = 0; x < this.peakCache.data.length / 2; x++) {
       const min = this.peakCache.data[x * 2];
@@ -152,13 +155,15 @@ export class SamplerView {
 
     sample.slices.forEach((start, i) => {
       const x = Math.round(toX(start)) + 0.5;
-      ctx.strokeStyle = '#6ee7c7';
+      ctx.strokeStyle = '#9dff3d';
+      ctx.shadowColor = '#9dff3d';
+      ctx.shadowBlur = 10;
       ctx.lineWidth = i === this.drag?.index ? 3 : 1.5;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, HEIGHT);
       ctx.stroke();
-      ctx.fillStyle = '#6ee7c7';
+      ctx.fillStyle = '#9dff3d';
       ctx.font = '10px ui-monospace, Menlo, monospace';
       ctx.fillText(String(i), x + 3, 12);
     });
