@@ -211,6 +211,32 @@ check('Vorsingen endet mit einer Rückmeldung',
 check('Das Mikrofon wird wieder freigegeben',
   await page.evaluate(() => !window.blockwerk.beatboxing));
 
+// Geisternoten im Generator: ohne sie klingt jede Melodie wie ein Stempel.
+const geister = await page.evaluate(async () => {
+  const { generateMelody, generateSliceArrangement } = await import('/js/ideas.js');
+  const { GHOST, ACCENT } = await import('/js/pattern.js');
+  const laeufe = Array.from({ length: 30 }, () => generateMelody({ density: 0.7 }));
+  const slices = Array.from({ length: 30 }, () => generateSliceArrangement({ density: 0.8, stutter: 0.6 }));
+  const zaehle = (sets, zustand) =>
+    sets.filter((s) => s.some((step) => step.on === zustand)).length / sets.length;
+  return {
+    melodieGeister: zaehle(laeufe, GHOST),
+    melodieAkzente: zaehle(laeufe, ACCENT),
+    sliceGeister: zaehle(slices, GHOST),
+    sliceRolls: slices.filter((s) => s.some((step) => step.roll >= 2)).length / slices.length,
+    // Auf der Eins steht nie ein Geist – die traegt.
+    einsNieGeist: laeufe.every((s) => s[0].on !== GHOST),
+  };
+});
+check('Melodien benutzen Geisternoten', geister.melodieGeister > 0.5,
+  `${Math.round(geister.melodieGeister * 100)} % der Melodien haben welche`);
+check('Melodien behalten ihre Akzente', geister.melodieAkzente > 0.8,
+  `${Math.round(geister.melodieAkzente * 100)} %`);
+check('Die Eins bleibt ein voller Schlag', geister.einsNieGeist);
+check('Slice-Folgen bekommen Geister und Rolls',
+  geister.sliceGeister > 0.5 && geister.sliceRolls > 0.3,
+  `Geister ${Math.round(geister.sliceGeister * 100)} %, Rolls ${Math.round(geister.sliceRolls * 100)} %`);
+
 await browser.close();
 await server.close();
 errors.forEach((e) => console.log(' -', e));

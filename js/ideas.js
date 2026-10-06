@@ -5,7 +5,7 @@
 // steckt das Wissen hier drin – in gewichteten Rastern, Konturen und
 // Schlusstönen – und draußen stehen nur Würfel, Dichte und Form.
 
-import { STEPS_PER_BAR } from './pattern.js';
+import { ACCENT, GHOST, ON, STEPS_PER_BAR } from './pattern.js';
 
 // Wie wahrscheinlich ist ein Anschlag auf diesem Sechzehntel? Die Eins trägt,
 // die Achtel stützen, die Sechzehntel würzen.
@@ -101,8 +101,17 @@ export function generateMelody({
     deg = clamp(deg, low - scaleLength, high + scaleLength);
     previous = deg;
 
+    // Nicht jede Note trägt gleich viel: was zwischen den Zählzeiten liegt,
+    // darf ein Geist sein. Ohne diese dritte Stufe klingt jede gewürfelte
+    // Melodie wie ein Stempel.
     const downbeat = index % 4 === 0;
-    steps[index] = { on: accents && downbeat ? 2 : 1, deg };
+    // Alles, was nicht auf einer Zählzeit liegt, darf ein Geist sein – und der
+    // letzte Ton nie, der trägt den Schluss.
+    const last = i === positions.length - 1;
+    const on = accents && downbeat ? ACCENT
+      : !downbeat && !last && chance(0.35) ? GHOST
+      : ON;
+    steps[index] = { on, deg };
   });
 
   return steps;
@@ -161,7 +170,12 @@ export function generateSliceArrangement({
     if (chance(stutter)) {
       // Stotterer: ein Slice vier Mal hintereinander
       const slice = beat === 0 ? 0 : rand(sliceCount);
-      for (let k = 0; k < 4; k++) steps[base + k] = { on: k === 0 ? 2 : 1, deg: slice };
+      // Der Stotterer faellt nach hinten ab – sonst ist er vier Mal derselbe Schlag.
+      for (let k = 0; k < 4; k++) {
+        steps[base + k] = { on: k === 0 ? ACCENT : k === 3 ? GHOST : ON, deg: slice };
+      }
+      // Ab und zu wird daraus ein echter Roll statt vier Einzelschlaege.
+      if (chance(0.3)) steps[base + 3] = { on: ON, deg: slice, roll: chance(0.5) ? 3 : 4 };
       continue;
     }
     for (let k = 0; k < 4; k++) {
@@ -170,7 +184,8 @@ export function generateSliceArrangement({
       let slice = motif[k];
       if (!strong && chance(0.35)) slice = (slice + 1 + rand(sliceCount - 1)) % sliceCount;
       if (beat === 0 && strong) slice = 0;        // der Takt beginnt vorn
-      steps[base + k] = { on: strong ? 2 : 1, deg: slice % sliceCount };
+      const on = strong ? ACCENT : (k % 2 === 1 && chance(0.45) ? GHOST : ON);
+      steps[base + k] = { on, deg: slice % sliceCount };
     }
   }
   return steps;

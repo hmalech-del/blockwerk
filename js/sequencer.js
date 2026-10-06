@@ -3,10 +3,12 @@
 // verschiebt die Tonhöhe in Skalenstufen. Beides funktioniert mit dem Finger.
 
 import { CLIP_SLOTS, STEPS_PER_BAR } from './project.js';
+import { ACCENT, GHOST, ON, ROLLS, STEP_STATES } from './pattern.js';
 import { CONTOURS } from './ideas.js';
 
 const DRAG_THRESHOLD = 10;
 const PIXELS_PER_DEGREE = 16;
+const PIXELS_PER_ROLL = 22;
 
 export class Sequencer {
   constructor(el, hooks) {
@@ -150,17 +152,24 @@ export class Sequencer {
   cellMarkup(index, step, column) {
     const cls = ['cell'];
     if (step.on) cls.push('on');
-    if (step.on === 2) cls.push('accent');
+    if (step.on === ACCENT) cls.push('accent');
+    if (step.on === GHOST) cls.push('ghost');
+    if (step.roll >= 2) cls.push('roll');
     if (column % 4 === 0) cls.push('downbeat');
     return `<button class="${cls.join(' ')}" data-act="cell" data-index="${index}">
       <span class="deg">${step.on && step.deg ? step.deg : ''}</span>
+      <span class="roll">${step.on && step.roll >= 2 ? '·'.repeat(Math.min(6, step.roll)) : ''}</span>
     </button>`;
   }
 
   paintCell(cell, step) {
     cell.classList.toggle('on', step.on > 0);
-    cell.classList.toggle('accent', step.on === 2);
+    cell.classList.toggle('accent', step.on === ACCENT);
+    cell.classList.toggle('ghost', step.on === GHOST);
+    cell.classList.toggle('roll', step.roll >= 2);
     cell.querySelector('.deg').textContent = step.on && step.deg ? step.deg : '';
+    cell.querySelector('.roll').textContent =
+      step.on && step.roll >= 2 ? '·'.repeat(Math.min(6, step.roll)) : '';
   }
 
   renderBarTabs() {
@@ -267,24 +276,46 @@ export class Sequencer {
 
       e.preventDefault();
       const index = Number(cell.dataset.index);
-      this.drag = { cell, track, clip, index, startY: e.clientY, startDeg: clip.steps[index].deg, moved: false };
+      this.drag = {
+        cell, track, clip, index,
+        startX: e.clientX, startY: e.clientY,
+        startDeg: clip.steps[index].deg,
+        startRoll: ROLLS.indexOf(clip.steps[index].roll || 0),
+        axis: null, moved: false,
+      };
       cell.setPointerCapture(e.pointerId);
     });
 
+    // Senkrecht zieht die Tonhöhe, waagerecht den Roll. Die Achse wird einmal
+    // festgelegt, sonst kippt eine schräge Geste ständig hin und her.
     this.el.addEventListener('pointermove', (e) => {
       if (!this.drag) return;
       const dy = this.drag.startY - e.clientY;
-      if (Math.abs(dy) < DRAG_THRESHOLD) return;
+      const dx = e.clientX - this.drag.startX;
+      if (!this.drag.axis) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < DRAG_THRESHOLD) return;
+        this.drag.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      }
       this.drag.moved = true;
       const step = this.drag.clip.steps[this.drag.index];
-      // Beim Sampler zaehlt die Stufe Slices – da gibt es kein Minus und kein
-      // Ueber-das-Ende-hinaus.
-      const range = this.degreeRange(this.drag.track);
-      const deg = Math.max(range.min, Math.min(range.max,
-        this.drag.startDeg + Math.round(dy / PIXELS_PER_DEGREE)));
-      if (step.deg === deg && step.on) return;
-      step.deg = deg;
-      if (!step.on) step.on = 1;
+
+      if (this.drag.axis === 'x') {
+        const at = Math.max(0, Math.min(ROLLS.length - 1,
+          Math.max(0, this.drag.startRoll) + Math.round(dx / PIXELS_PER_ROLL)));
+        const roll = ROLLS[at];
+        if ((step.roll || 0) === roll && step.on) return;
+        if (roll >= 2) step.roll = roll; else delete step.roll;
+        if (!step.on) step.on = ON;
+      } else {
+        // Beim Sampler zaehlt die Stufe Slices – da gibt es kein Minus und kein
+        // Ueber-das-Ende-hinaus.
+        const range = this.degreeRange(this.drag.track);
+        const deg = Math.max(range.min, Math.min(range.max,
+          this.drag.startDeg + Math.round(dy / PIXELS_PER_DEGREE)));
+        if (step.deg === deg && step.on) return;
+        step.deg = deg;
+        if (!step.on) step.on = ON;
+      }
       this.paintCell(this.drag.cell, step);
       this.hooks.onPreview(this.drag.track, step);
       this.hooks.onChange({ quiet: true });
@@ -296,7 +327,8 @@ export class Sequencer {
       this.drag = null;
       if (!moved) {
         const step = clip.steps[index];
-        step.on = (step.on + 1) % 3; // aus -> an -> Akzent
+        step.on = (step.on + 1) % STEP_STATES; // aus -> an -> Akzent -> Geist
+        if (!step.on) delete step.roll;        // ein stummer Schritt rollt nicht
         this.paintCell(cell, step);
         if (step.on) this.hooks.onPreview(track, step);
       }
@@ -381,7 +413,8 @@ export class Sequencer {
       <textarea spellcheck="false" data-role="clip-text">${this.hooks.clipToText(clip)}</textarea>
       <div class="clip-text-foot">
         <button data-act="apply-text">Übernehmen</button>
-        <p class="hint"><code>.</code> Pause · <code>x</code> an · <code>X</code> Akzent · <code>x3</code> Stufe 3 · <code>|</code> Trenner</p>
+        <p class="hint"><code>.</code> Pause · <code>x</code> an · <code>X</code> Akzent · <code>o</code> Geist ·
+          <code>x3</code> Stufe 3 · <code>x*3</code> Roll · <code>|</code> Trenner</p>
       </div>`;
   }
 }

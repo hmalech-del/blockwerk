@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Blockwerk – modularer Klangbaukasten</title>
   <meta name="description" content="Modulare Web-Audio-App: Sequenzer, Drum-Loops und frei verkettbare Klangblöcke – gebaut für Tablet und Laptop.">
-  <link rel="stylesheet" href="css/style.css?v=0.9.3">
+  <link rel="stylesheet" href="css/style.css?v=0.10.0">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>▦</text></svg>">
 </head>
 <body>
@@ -50,8 +50,18 @@
         <output id="volume-value">70 %</output>
       </label>
 
-      <button id="test-tone" class="ghost" title="Kurzer Testton über den Master">Testton</button>
-      <button id="panic" class="ghost" title="Alle Stimmen stoppen">Panik</button>
+      <button id="tape" class="ghost util" title="Mitschnitt starten und als Datei sichern">
+        <b class="glyph">●</b><span class="util-text">Mitschnitt</span>
+      </button>
+      <button id="midi" class="ghost util" title="MIDI-Controller verbinden">
+        <b class="glyph">⎆</b><span class="util-text">MIDI</span>
+      </button>
+      <button id="test-tone" class="ghost util" title="Kurzer Testton über den Master">
+        <b class="glyph">♪</b><span class="util-text">Testton</span>
+      </button>
+      <button id="panic" class="ghost util" title="Alle Stimmen stoppen">
+        <b class="glyph">✋</b><span class="util-text">Panik</span>
+      </button>
     </div>
   </header>
 
@@ -69,6 +79,7 @@
     <button data-view="sampler">Sampler</button>
     <button data-view="script">Script</button>
     <output id="audio-state" class="audio-state" hidden></output>
+    <output id="tape-time" class="tape-time" hidden></output>
     <div class="tabs-right">
       <label class="ctrl small">
         <span>Tonart</span>
@@ -159,9 +170,9 @@
 
   <footer>
     <p>Sequenzer, Live-Ansicht und Set-Script – der Plan erinnert, die Hand entscheidet.</p>
-    <p class="version">Blockwerk <b id="version">0.9.3</b> · Neon</p>
+    <p class="version">Blockwerk <b id="version">0.10.0</b> · Neon</p>
   </footer>
 
-  <script type="module" src="js/app.js?v=0.9.3"></script>
+  <script type="module" src="js/app.js?v=0.10.0"></script>
 </body>
 </html>

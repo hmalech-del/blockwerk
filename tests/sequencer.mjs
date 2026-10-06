@@ -302,6 +302,75 @@ check('Kürzen behält den ersten Takt',
   gekuerzt.takte === 1 && gekuerzt.muster === barsUi.musterVorher && gekuerzt.tabs === 0,
   `${gekuerzt.takte} Takte, ${gekuerzt.tabs} Reiter`);
 
+// ------------------------------------------- Geisternoten, Rolls, Versatz
+// Drei Dinge, die aus einem korrekten Raster erst einen Groove machen.
+
+const groove = await page.evaluate(async () => {
+  const { engine, transport, project } = window.blockwerk;
+  const { GHOST, ACCENT, ON, VELOCITY } = await import('/js/pattern.js');
+  const p = project();
+  const hat = p.tracks[2];
+  const kick = p.tracks[0];
+  const vorher = p.tracks.map((t) => t.clips[t.clip].steps);
+  const leer = () => Array.from({ length: 16 }, () => ({ on: 0, deg: 0 }));
+  for (const t of p.tracks) t.clips[t.clip].steps = leer();
+
+  p.tempo = 120; p.swing = 0; p.swingGrid = 16;
+  hat.nudge = 0; kick.nudge = 0;
+
+  // Vier Anschlaege: an, Akzent, Geist, und ein Roll aus drei Schlaegen.
+  const steps = leer();
+  steps[0] = { on: ON, deg: 0 };
+  steps[4] = { on: ACCENT, deg: 0 };
+  steps[8] = { on: GHOST, deg: 0 };
+  steps[12] = { on: ON, deg: 0, roll: 3 };
+  hat.clips[hat.clip].steps = steps;
+  kick.clips[kick.clip].steps = leer();
+  kick.clips[kick.clip].steps[0] = { on: ON, deg: 0 };
+  kick.nudge = 25;   // ein Viertel-Sechzehntel hinter dem Raster
+
+  const log = [];
+  const orig = engine.noteOn.bind(engine);
+  engine.noteOn = (id, m, when, o) => { log.push({ id, when, v: o?.velocity, dur: o?.dur }); return null; };
+  transport.start();
+  await new Promise((x) => setTimeout(x, 2100));
+  transport.stop();
+  engine.noteOn = orig;
+
+  const hats = log.filter((e) => e.id === hat.id).sort((a, b) => a.when - b.when);
+  const kicks = log.filter((e) => e.id === kick.id).sort((a, b) => a.when - b.when);
+  const sechzehntel = 60 / 120 / 4;
+  const ersterTakt = hats.slice(0, 6);
+
+  p.tracks.forEach((t, i) => { t.clips[t.clip].steps = vorher[i]; });
+  kick.nudge = 0;
+  return {
+    velocities: ersterTakt.map((e) => +e.v.toFixed(3)),
+    erwartet: [VELOCITY[ON], VELOCITY[ACCENT], VELOCITY[GHOST]].map((v) => +v.toFixed(3)),
+    // Der Roll auf Schritt 12: drei Anschlaege im Abstand eines Dritt-Sechzehntels
+    rollAbstaende: ersterTakt.slice(3, 6).slice(1)
+      .map((e, i) => +((e.when - ersterTakt[3 + i].when) / sechzehntel).toFixed(3)),
+    rollZahl: ersterTakt.length,
+    rollDauerKuerzer: ersterTakt[3] && ersterTakt[0] ? ersterTakt[3].dur < ersterTakt[0].dur : false,
+    // Versatz: der Kick liegt 25 ms hinter dem Hi-Hat auf derselben Eins
+    versatzMs: hats.length && kicks.length ? Math.round((kicks[0].when - hats[0].when) * 1000) : null,
+  };
+});
+
+check('Drei Anschlagstärken statt zwei',
+  groove.velocities.slice(0, 3).join(',') === groove.erwartet.join(','),
+  `${groove.velocities.slice(0, 3).join(', ')} gegen ${groove.erwartet.join(', ')}`);
+check('Die Geisternote ist die leiseste',
+  groove.velocities[2] < groove.velocities[0] && groove.velocities[0] < groove.velocities[1],
+  `Geist ${groove.velocities[2]} < an ${groove.velocities[0]} < Akzent ${groove.velocities[1]}`);
+check('Ein Roll feuert dreimal im Schritt', groove.rollZahl === 6, `${groove.rollZahl} Anschläge im Takt`);
+check('Die Rollschläge sitzen gleichmäßig im Drittel',
+  groove.rollAbstaende.every((g) => Math.abs(g - 1 / 3) < 0.01),
+  groove.rollAbstaende.map((g) => g.toFixed(3)).join(' '));
+check('Ein Roll kürzt seine Noten, damit er nicht matscht', groove.rollDauerKuerzer);
+check('Der Versatz je Spur legt den Kick hinter den Beat',
+  Math.abs(groove.versatzMs - 25) <= 1, `${groove.versatzMs} ms`);
+
 await browser.close();
 await server.close();
 errors.forEach((e) => console.log(' -', e));

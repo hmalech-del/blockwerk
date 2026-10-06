@@ -153,6 +153,9 @@ main {
   display: grid;
   gap: 28px;
 }
+/* Rasterzellen sind von Haus aus mindestens so breit wie ihr Inhalt. Ohne das
+   hier schiebt eine einzige lange Zeile die ganze Seite nach rechts. */
+main > section { min-width: 0; }
 
 .section-head { margin-bottom: 14px; }
 .section-head h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .12em; color: var(--accent); }
@@ -683,7 +686,25 @@ button.small { padding: 5px 10px; font-size: 12px; }
 }
 .macro.empty { opacity: .6; border-style: dashed; }
 .macro-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.macro-label { font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.macro-label { font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+/* Lernknopf für einen Drehregler am Controller. */
+.midi-chip {
+  padding: 2px 7px; font-size: 10px; letter-spacing: .06em;
+  background: var(--panel); color: var(--muted); border-radius: 999px;
+  white-space: nowrap;
+}
+.midi-chip.bound { color: var(--accent-2); border-color: var(--accent-2); }
+.midi-chip.learning { color: var(--accent); border-color: var(--accent); animation: blink 1s steps(2) infinite; }
+.util { display: inline-flex; align-items: center; gap: 6px; }
+.util .glyph { font-weight: 400; line-height: 1; }
+#tape.taping { color: var(--danger); border-color: var(--danger); }
+#tape.taping .glyph { animation: blink 1.4s steps(2) infinite; }
+#midi.on { color: var(--accent-2); border-color: var(--accent-2); }
+.tape-time {
+  font: 600 12px ui-monospace, Menlo, monospace;
+  color: var(--danger);
+}
+.tape-time[hidden] { display: none; }
 .macro-value {
   font: 11px ui-monospace, Menlo, monospace;
   color: var(--accent);
@@ -965,6 +986,11 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
 .cell.on { background: color-mix(in srgb, var(--track) 60%, #10131c); }
 .cell.on { border-color: var(--track); }
 .cell.accent { background: var(--track); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .5); }
+/* Geisternoten sind zu sehen, aber zurückgenommen – wie sie klingen. */
+.cell.ghost {
+  background: color-mix(in srgb, var(--track) 22%, #10131c);
+  border-style: dashed;
+}
 .cell.now { outline: 2px solid var(--accent); outline-offset: 1px; }
 @media (hover: hover) {
   .cell:hover { border-color: var(--accent-2); }
@@ -976,6 +1002,16 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
   color: rgba(13, 15, 20, .85);
 }
 .cell:not(.on) .deg { color: transparent; }
+/* Ein Roll zeigt seine Anschläge als Punktreihe am unteren Rand. */
+.cell { position: relative; }
+.cell .roll {
+  position: absolute; left: 0; right: 0; bottom: 2px;
+  font: 700 9px ui-monospace, Menlo, monospace;
+  letter-spacing: 1px;
+  color: rgba(13, 15, 20, .8);
+  pointer-events: none;
+}
+.cell.ghost .roll, .cell:not(.on) .roll { color: var(--accent-2); }
 
 .seq-foot { display: flex; gap: 8px; padding-top: 4px; }
 
@@ -1066,6 +1102,10 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
   .transport { gap: 6px; }
   .transport > button { padding: 7px 10px; font-size: 14px; }
   .play { min-width: 100px; }
+  /* Die Nebenknoepfe schrumpfen auf ihr Zeichen – der Tooltip sagt den Rest.
+     Lieber vier Symbole als eine zweite Zeile in der Kopfleiste. */
+  .util .util-text { display: none; }
+  .util { padding: 7px 11px; }
 }
 
 /* Flache Fenster (13-Zoll-Notebook mit Lesezeichenleiste): Ränder kürzen,
@@ -1231,6 +1271,7 @@ button:hover {
               inset 0 0 10px rgba(255, 255, 255, .18);
 }
 .cell.accent { box-shadow: 0 0 20px var(--track), inset 0 0 0 2px rgba(255, 255, 255, .65); }
+.cell.ghost { box-shadow: none; border-color: color-mix(in srgb, var(--track) 55%, transparent); }
 .cell.now { outline-color: #fff; box-shadow: 0 0 24px rgba(255, 255, 255, .5); }
 
 .track.selected { border-color: var(--track); box-shadow: inset 0 0 26px color-mix(in srgb, var(--track) 18%, transparent); }

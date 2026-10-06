@@ -17,7 +17,7 @@
 //   bar 49   end
 
 import { MODULES, EFFECTS, defaultParams } from './modules.js';
-import { CLIP_SLOTS, MAX_SWING, STEPS_PER_BAR, uid } from './project.js';
+import { CLIP_SLOTS, MAX_NUDGE, MAX_SWING, STEPS_PER_BAR, uid } from './project.js';
 import { parseSteps } from './pattern.js';
 import { equalSlices, detectTransients } from './samples.js';
 
@@ -46,6 +46,10 @@ const PATTERN = /^pattern\s+(.+?)\s+([a-dA-D])\s*=\s*(.+)$/i;
 const CONTROL = /^control\s+(\d+)\s+(.+?)(?:\s+(-?[\d.]+)\s+(-?[\d.]+))?(?:\s+as\s+(.+))?$/i;
 const MACRO_SLOTS = 4;
 
+// „master" ist im Script ein gueltiges Ziel fuer add/remove/bypass, obwohl es
+// keine Spur ist. Dieser Schluessel haelt die Summe in denselben Tabellen.
+const MASTER_ID = 'master';
+
 // Namen vergleichen sich tolerant: Gross-/Kleinschreibung und Leerzeichen
 // zaehlen nicht mit. „spur1“, „Spur 1“ und „SPUR  1“ sind dieselbe Spur.
 export const nameKey = (text) => String(text ?? '').toLowerCase().replace(/\s+/g, '');
@@ -67,7 +71,10 @@ export function parseScript(text, project) {
   // „add Spur 1 crusher“ den Effekt nicht zum Namen zaehlt.
   // „tail“ sagt, wie viele Woerter am Ende sicher nicht zum Namen gehoeren –
   // nur fuer die Fehlermeldung, damit die den Namen nennt und nicht den Effekt.
-  function takeTrack(words, from, tail = 0) {
+  function takeTrack(words, from, tail = 0, allowMaster = false) {
+    if (allowMaster && nameKey(words[from]) === MASTER_ID) {
+      return { track: { id: MASTER_ID, name: 'Master', chain: project.master.chain }, next: from + 1, name: 'Master' };
+    }
     for (let end = words.length; end > from; end--) {
       const name = words.slice(from, end).join(' ');
       const track = findTrack(name);
@@ -88,7 +95,7 @@ export function parseScript(text, project) {
     for (const part of clean.split(',')) {
       const words = part.trim().split(/\s+/).filter(Boolean);
       if (words[0]?.toLowerCase() !== 'add') continue;
-      const { track, next } = takeTrack(words, 1);
+      const { track, next } = takeTrack(words, 1, 0, true);
       const type = String(words[next] ?? '').toLowerCase();
       if (track && MODULES[type]?.kind === 'fx') willExist.add(`${track.id}|${type}`);
     }
@@ -193,7 +200,7 @@ export function parseScript(text, project) {
     // Effekte zur Laufzeit an- und abbauen. Die Regler dafuer erscheinen
     // automatisch im Klang-Reiter, weil der die Kette aus dem Modell zeichnet.
     if (head === 'add' || head === 'remove') {
-      const { track, next, name } = takeTrack(words, 1, 1);
+      const { track, next, name } = takeTrack(words, 1, 1, true);
       if (!track) return fail(lineNo, unknownTrack(name));
       const type = String(words[next] ?? '').toLowerCase();
       if (!MODULES[type] || MODULES[type].kind !== 'fx') {
@@ -204,7 +211,7 @@ export function parseScript(text, project) {
 
     if (head === 'bypass') {
       const tail = ['on', 'off'].includes(String(words[words.length - 1]).toLowerCase()) ? 2 : 1;
-      const { track, next, name } = takeTrack(words, 1, tail);
+      const { track, next, name } = takeTrack(words, 1, tail, true);
       if (!track) return fail(lineNo, unknownTrack(name));
       const type = String(words[next] ?? '').toLowerCase();
       if (!MODULES[type] || MODULES[type].kind !== 'fx') {
@@ -240,7 +247,7 @@ export function parseScript(text, project) {
         return fail(lineNo, `Es gibt ${MACRO_SLOTS} Live-Regler – „${slot}“ liegt daneben.`);
       }
       const path = match[2].trim();
-      const target = resolveTarget(path, trackByName, willExist);
+      const target = resolveTarget(path, trackByName, willExist, project);
       if (target.error) return fail(lineNo, target.error);
       return events.push({
         bar, line: lineNo, type: 'control', slot: slot - 1,
@@ -283,7 +290,7 @@ export function parseScript(text, project) {
 
     const ramp = RAMP.exec(command);
     if (ramp) {
-      const target = resolveTarget(ramp[1].trim(), trackByName, willExist);
+      const target = resolveTarget(ramp[1].trim(), trackByName, willExist, project);
       if (target.error) return fail(lineNo, target.error);
       const bars = ramp[4] === undefined ? 0 : Number(ramp[4]);
       return events.push({
@@ -300,13 +307,25 @@ export function parseScript(text, project) {
 }
 
 // „bass.filter.freq“, „bass.volume“, „bass.source.detune“, „master.volume“
-function resolveTarget(path, trackByName, willExist = new Set()) {
+function resolveTarget(path, trackByName, willExist = new Set(), project = null) {
   const all = String(path).split('.');
   if (nameKey(all[0]) === 'master') {
-    if (nameKey(all[1]) !== 'volume' || all.length !== 2) {
-      return { error: `Am Master gibt es nur „master.volume“.` };
+    if (all.length === 2 && nameKey(all[1]) === 'volume') return { value: { kind: 'master' } };
+    // master.filter.freq – die Summe hat dieselbe Kette wie eine Spur.
+    if (all.length === 3) {
+      const type = all[1].toLowerCase();
+      if (!MODULES[type] || MODULES[type].kind !== 'fx') return { error: `Unbekannter Effekt „${all[1]}“.` };
+      const chain = project?.master?.chain || [];
+      if (!chain.some((b) => b.type === type) && !willExist.has(`${MASTER_ID}|${type}`)) {
+        return { error: `Der Master hat keinen Effekt „${all[1]}“ – mit „add master ${type}“ lässt er sich anlegen.` };
+      }
+      const spec = MODULES[type].params.find((p) => p.id.toLowerCase() === all[2].toLowerCase());
+      if (!spec) {
+        return { error: `„${all[1]}“ kennt „${all[2]}“ nicht – möglich: ${MODULES[type].params.map((p) => p.id).join(', ')}.` };
+      }
+      return { value: { kind: 'masterFx', blockType: type, param: spec.id } };
     }
-    return { value: { kind: 'master' } };
+    return { error: `Am Master gibt es „master.volume“ und „master.<effekt>.<parameter>“.` };
   }
 
   // Der Spurname steht vorn und darf selbst Punkte enthalten. Deshalb von
@@ -328,10 +347,10 @@ function resolveTarget(path, trackByName, willExist = new Set()) {
 
   if (parts.length === 2) {
     const name = parts[1].toLowerCase();
-    if (['volume', 'gate', 'offset'].includes(name)) {
+    if (['volume', 'gate', 'offset', 'nudge'].includes(name)) {
       return { value: { kind: 'track', trackId: track.id, param: name } };
     }
-    return { error: `„${parts[1]}“ gibt es an einer Spur nicht – möglich sind volume, gate und offset.` };
+    return { error: `„${parts[1]}“ gibt es an einer Spur nicht – möglich sind volume, gate, offset und nudge.` };
   }
 
   if (parts.length === 3) {
@@ -462,23 +481,22 @@ export class ScriptRunner {
         this.engine.applyMix();
         break;
       case 'addFx': {
-        const track = project.tracks.find((t) => t.id === event.trackId);
-        if (!track || track.chain.some((b) => b.type === event.fx)) break;
-        track.chain.push({ id: uid('b'), type: event.fx, bypass: false, params: defaultParams(event.fx) });
+        const chain = chainFor(project, event.trackId);
+        if (!chain || chain.some((b) => b.type === event.fx)) break;
+        chain.push({ id: uid('b'), type: event.fx, bypass: false, params: defaultParams(event.fx) });
         this.onStructure();
         break;
       }
       case 'removeFx': {
-        const track = project.tracks.find((t) => t.id === event.trackId);
-        const index = track ? track.chain.findIndex((b) => b.type === event.fx) : -1;
+        const chain = chainFor(project, event.trackId);
+        const index = chain ? chain.findIndex((b) => b.type === event.fx) : -1;
         if (index < 0) break;
-        track.chain.splice(index, 1);
+        chain.splice(index, 1);
         this.onStructure();
         break;
       }
       case 'bypassFx': {
-        const track = project.tracks.find((t) => t.id === event.trackId);
-        const block = track?.chain.find((b) => b.type === event.fx);
+        const block = chainFor(project, event.trackId)?.find((b) => b.type === event.fx);
         if (!block) break;
         block.bypass = event.value;
         this.onStructure();
@@ -554,6 +572,13 @@ export class ScriptRunner {
       this.engine.setMasterVolume(project.master.volume);
       return;
     }
+    if (target.kind === 'masterFx') {
+      const block = project.master.chain.find((b) => b.type === target.blockType);
+      if (!block) return;
+      block.params[target.param] = value;
+      this.engine.setParam(MASTER_ID, block.id, target.param, value);
+      return;
+    }
     const track = project.tracks.find((t) => t.id === target.trackId);
     if (!track) return;
 
@@ -563,6 +588,8 @@ export class ScriptRunner {
         this.engine.applyMix();
       } else if (target.param === 'offset') {
         track.offset = Math.round(clamp(value, -14, 14));
+      } else if (target.param === 'nudge') {
+        track.nudge = Math.round(clamp(value, -MAX_NUDGE, MAX_NUDGE));
       } else {
         track.gate = clamp(value, 0.05, 4);
       }
@@ -596,6 +623,12 @@ export class ScriptRunner {
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+// Spur oder Summe – beide haben eine Kette, nur eine davon hat Stimmen.
+function chainFor(project, trackId) {
+  if (trackId === MASTER_ID) return project.master.chain;
+  return project.tracks.find((t) => t.id === trackId)?.chain || null;
+}
+
 // Ein Live-Regler merkt sich Ziel, Bereich und Beschriftung; der Wert kommt
 // aus dem aktuellen Stand des Ziels.
 function setMacro(project, event) {
@@ -613,11 +646,16 @@ function setMacro(project, event) {
 // Bereich und Art eines Ziels aus der Modul-Registry ableiten.
 export function targetSpec(project, target) {
   if (target.kind === 'master') return { min: 0, max: 1, scale: null };
+  if (target.kind === 'masterFx') {
+    const spec = MODULES[target.blockType]?.params.find((p) => p.id === target.param);
+    return spec ? { min: spec.min, max: spec.max, scale: spec.scale || null, unit: spec.unit } : { min: 0, max: 1, scale: null };
+  }
   const track = project.tracks.find((t) => t.id === target.trackId);
   if (!track) return { min: 0, max: 1, scale: null };
   if (target.kind === 'track') {
     if (target.param === 'volume') return { min: 0, max: 1, scale: null };
     if (target.param === 'offset') return { min: -7, max: 7, scale: null };
+    if (target.param === 'nudge') return { min: -MAX_NUDGE, max: MAX_NUDGE, scale: null, unit: 'ms' };
     return { min: 0.05, max: 4, scale: 'log' };
   }
   const type = target.kind === 'source' ? track.source.type : target.blockType;
@@ -627,11 +665,15 @@ export function targetSpec(project, target) {
 
 export function readTarget(project, target) {
   if (target.kind === 'master') return project.master.volume;
+  if (target.kind === 'masterFx') {
+    return project.master.chain.find((b) => b.type === target.blockType)?.params[target.param] ?? 0;
+  }
   const track = project.tracks.find((t) => t.id === target.trackId);
   if (!track) return 0;
   if (target.kind === 'track') {
     if (target.param === 'volume') return track.mix.volume;
     if (target.param === 'offset') return track.offset || 0;
+    if (target.param === 'nudge') return track.nudge || 0;
     return track.gate;
   }
   if (target.kind === 'source') return track.source.params[target.param];

@@ -60,7 +60,7 @@ await page.click('#play');
 await page.waitForTimeout(200);
 check('Transport stoppt', !(await page.evaluate(() => window.blockwerk.transport.playing)));
 
-// Schritt setzen: tippen schaltet aus -> an -> Akzent -> aus
+// Schritt setzen: tippen schaltet aus -> an -> Akzent -> Geist -> aus
 const cell = page.locator('.track').first().locator('.cell').nth(1);
 const stepState = async () => (await project()).tracks[0].clips[0].steps[1].on;
 await cell.click();
@@ -69,8 +69,13 @@ await cell.click();
 const afterSecond = await stepState();
 await cell.click();
 const afterThird = await stepState();
-check('Tippen schaltet Schritt durch', afterFirst === 1 && afterSecond === 2 && afterThird === 0,
-  `${afterFirst} -> ${afterSecond} -> ${afterThird}`);
+await cell.click();
+const afterFourth = await stepState();
+check('Die Geisternote ist ein eigener Zustand', afterThird === 3,
+  `dritter Tipp ergibt ${afterThird}`);
+check('Tippen schaltet Schritt durch',
+  afterFirst === 1 && afterSecond === 2 && afterFourth === 0,
+  `${afterFirst} -> ${afterSecond} -> ${afterThird} -> ${afterFourth}`);
 
 // Ziehen ändert die Tonhöhe
 const bassCell = page.locator('.track').nth(3).locator('.cell').first();
@@ -143,7 +148,8 @@ await page.waitForTimeout(100);
 check('Spurauswahl im Klang-Reiter',
   (await page.textContent('.block-track h3')).trim() === (await project()).tracks[1].name,
   await page.textContent('.block-track h3'));
-await page.click('.track-pick:last-child');
+// Der letzte Eintrag im Waehler ist der Master – die letzte Spur steht davor.
+await page.locator('.track-pick:not(.master)').last().click();
 await page.waitForTimeout(100);
 
 await page.selectOption('#presets', '3'); // Kick
@@ -200,6 +206,113 @@ await page.click('#new-project');
 check('Neues Set startet leer', (await project()).tracks.length === 1);
 await page.click('#demo-project');
 check('Demo-Set wieder ladbar', (await project()).tracks.length === 5);
+
+// ------------------------------------------------ Summe, Duck, MIDI, Tape
+
+await page.click('[data-view="sound"]');
+await page.waitForTimeout(100);
+await page.click('.track-pick.master');
+await page.waitForTimeout(120);
+const masterView = await page.evaluate(() => ({
+  titel: document.querySelector('.block-master h3')?.textContent.trim(),
+  keineQuelle: !document.querySelector('.block-source'),
+  pegel: !!document.querySelector('.block-master input[type="range"]'),
+}));
+check('Der Master ist ein eigenes Ziel im Klang-Reiter',
+  masterView.titel === 'Master' && masterView.keineQuelle && masterView.pegel,
+  `${masterView.titel}, Quelle versteckt ${masterView.keineQuelle}`);
+
+await page.click('.palette button[data-type="filter"]');
+await page.waitForTimeout(150);
+const masterChain = await page.evaluate(() => {
+  const p = window.blockwerk.project();
+  return {
+    kette: p.master.chain.map((b) => b.type).join(','),
+    spurUnberuehrt: p.tracks.every((t) => !t.chain.some((b) => b.id === p.master.chain[0]?.id)),
+    bloecke: document.querySelectorAll('.block-fx').length,
+    verdrahtet: window.blockwerk.engine.masterChain?.instances.size ?? -1,
+  };
+});
+check('Ein Effekt landet in der Summe, nicht auf einer Spur',
+  masterChain.kette === 'filter' && masterChain.spurUnberuehrt
+  && masterChain.bloecke === 1 && masterChain.verdrahtet === 1,
+  `Kette ${masterChain.kette}, ${masterChain.bloecke} Block, ${masterChain.verdrahtet} verdrahtet`);
+
+// Der Duck braucht eine Quellspur – die Liste kommt aus dem Set.
+await page.click('.palette button[data-type="duck"]');
+await page.waitForTimeout(150);
+const duckUi = await page.evaluate(() => {
+  const sel = [...document.querySelectorAll('.block-fx select')]
+    .find((s) => [...s.options].some((o) => o.textContent === 'Kick'));
+  if (sel) {
+    sel.value = [...sel.options].find((o) => o.textContent === 'Kick').value;
+    sel.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  const p = window.blockwerk.project();
+  const block = p.master.chain.find((b) => b.type === 'duck');
+  const inst = [...(window.blockwerk.engine.masterChain?.instances.values() || [])].find((i) => i.duck);
+  return {
+    hatAuswahl: !!sel,
+    gesetzt: block?.params.source === p.tracks[0].id,
+    engineHoert: inst?.listensTo === p.tracks[0].id,
+  };
+});
+check('Der Duck lässt sich auf eine Spur hören',
+  duckUi.hatAuswahl && duckUi.gesetzt && duckUi.engineHoert,
+  `Auswahl ${duckUi.hatAuswahl}, Modell ${duckUi.gesetzt}, Engine ${duckUi.engineHoert}`);
+
+// Die Masterkette muss den Reload überleben – sonst ist sie im Set nichts wert.
+await page.waitForTimeout(400);
+await page.reload({ waitUntil: 'networkidle' });
+const nachReload = await page.evaluate(() => {
+  const p = window.blockwerk.project();
+  return {
+    kette: p.master.chain.map((b) => b.type).join(','),
+    quelle: p.master.chain.find((b) => b.type === 'duck')?.params.source === p.tracks[0].id,
+  };
+});
+check('Die Masterkette überlebt den Reload',
+  nachReload.kette === 'filter,duck' && nachReload.quelle,
+  `${nachReload.kette}, Quelle gemerkt ${nachReload.quelle}`);
+
+// MIDI: ohne Controller laesst sich nichts lernen, aber eine gespeicherte
+// Zuordnung muss greifen – das pruefen wir am Modell und am Regler.
+const midiTest = await page.evaluate(async () => {
+  const { ccKey } = await import('/js/midi.js');
+  const p = window.blockwerk.project();
+  p.macros[0] = {
+    label: 'Sweep', path: 'master.filter.freq',
+    target: { kind: 'masterFx', blockType: 'filter', param: 'freq' },
+    min: 200, max: 12000,
+  };
+  p.midi.map[ccKey(0, 74)] = 0;
+  window.blockwerk.live.setMidi({ open: true, learning: null, map: p.midi.map });
+  window.blockwerk.live.render();
+  return {
+    schluessel: ccKey(0, 74),
+    chip: document.querySelector('.midi-chip')?.textContent.trim(),
+    gebunden: !!document.querySelector('.midi-chip.bound'),
+  };
+});
+check('Ein zugeordneter Drehregler steht am Live-Regler',
+  midiTest.schluessel === '0:74' && midiTest.chip === 'CC 74' && midiTest.gebunden,
+  `${midiTest.chip}`);
+
+const tape = await page.evaluate(() => ({
+  knopf: !!document.querySelector('#tape'),
+  moeglich: typeof MediaRecorder !== 'undefined',
+}));
+check('Der Mitschnitt ist erreichbar', tape.knopf && tape.moeglich);
+
+await page.click('#tape');
+await page.waitForTimeout(500);
+const taping = await page.evaluate(() => ({
+  laeuft: window.blockwerk.engine.taping,
+  uhr: document.querySelector('#tape-time')?.hidden === false,
+}));
+check('Der Mitschnitt läuft und zeigt seine Laufzeit', taping.laeuft && taping.uhr,
+  `läuft ${taping.laeuft}, Uhr sichtbar ${taping.uhr}`);
+await page.evaluate(() => window.blockwerk.engine.stopTape());
 
 await page.screenshot({ path: 'tests/screenshot.png', fullPage: true });
 await browser.close();

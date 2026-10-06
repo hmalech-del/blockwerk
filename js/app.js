@@ -1,7 +1,7 @@
 // Verdrahtung: Projektzustand, Engine, Transport, Ansichten, Eingaben.
 
 import { Backdrop } from './backdrop.js';
-import { Engine } from './engine.js';
+import { Engine, MASTER } from './engine.js';
 import { Transport } from './transport.js';
 import { Rack, renderPalette } from './rack.js';
 import { Sequencer } from './sequencer.js';
@@ -16,12 +16,13 @@ import {
 } from './ideas.js';
 import { SampleStore, Recorder, equalSlices, detectTransients } from './samples.js';
 import { Keyboard } from './keyboard.js';
-import { parseSteps, stepsToText, STEPS_PER_BAR } from './pattern.js';
+import { MidiIn } from './midi.js';
+import { ACCENT, GHOST, ON, parseSteps, stepsToText, STEPS_PER_BAR } from './pattern.js';
 import {
   CLIP_SLOTS, SCALES, TRACK_COLORS, applyPreset, demoProject, followsKeyByDefault, trackMidi,
   makeClip, makeProject, makeSample, makeScene, makeTrack, normalizeProject, SOUND_PRESETS,
 } from './project.js';
-import { defaultParams } from './modules.js';
+import { MODULES, defaultParams } from './modules.js';
 
 const STORAGE_KEY = 'blockwerk.project.v2';
 const LEGACY_KEY = 'blockwerk.patch.v1';
@@ -114,6 +115,21 @@ const rack = new Rack($('#rack'), {
     save();
   },
   onParam: (scope, blockId, paramId, value) => {
+    // Die Summe ist keine Spur, hat aber dieselbe Kette.
+    if (selectedId === MASTER) {
+      if (scope === 'master') {
+        project.master.volume = value;
+        engine.setMasterVolume(value);
+      } else {
+        const block = project.master.chain.find((b) => b.id === blockId);
+        if (!block) return;
+        block.params[paramId] = value;
+        engine.setParam(MASTER, blockId, paramId, value);
+      }
+      syncControls();
+      save();
+      return;
+    }
     const track = selectedTrack();
     if (!track) return;
     if (scope === 'track') {
@@ -129,6 +145,10 @@ const rack = new Rack($('#rack'), {
       }
     } else if (scope === 'source') {
       track.source.params[paramId] = value;
+      // Der Pegel des Live-Eingangs wirkt sofort, nicht erst bei der naechsten Note.
+      if (paramId === 'gain' && MODULES[track.source.type]?.liveInput) {
+        engine.setInputGain(track.id, value);
+      }
     } else {
       const block = track.chain.find((b) => b.id === blockId);
       if (!block) return;
@@ -143,6 +163,7 @@ const rack = new Rack($('#rack'), {
     // Wer eine Spur zum Schlagzeug macht, will sie fast nie transponiert haben.
     track.tuned = followsKeyByDefault(type);
     engine.killTrack(track.id);
+    engine.sync();                       // der Live-Eingang wird hier auf- oder abgebaut
     rack.render();
     save();
   },
@@ -267,6 +288,13 @@ const live = new Live($('#live'), {
     script.setTarget(target, value);
     save();
   },
+  onMidiLearn: async (slot) => {
+    if (!(await midi.start())) return;
+    if (midi.learning === slot) midi.cancelLearn();
+    else midi.learn(slot);
+    live.setMidi({ open: midi.open, learning: midi.learning, map: project.midi.map });
+    live.render();
+  },
   onMacroTarget: (slot, path) => {
     project.macros = project.macros || [null, null, null, null];
     if (!path) {
@@ -356,12 +384,17 @@ async function beatbox(track) {
     return;
   }
 
+  // Wer vorsingt, singt nicht alles gleich laut. Die leisen Silben sollen
+  // auch leise landen – sonst ist jeder gesungene Groove ein Stempel.
+  const loudness = onsets.map((t) => onsetPeak(buffer, t));
+  const loudest = Math.max(...loudness, 1e-6);
+
   const targets = drumTargets();
   const useSplit = !!(targets.kick && (targets.snare || targets.hat));
   const written = { kick: 0, snare: 0, hat: 0, eigen: 0 };
   const cleared = new Set();
 
-  for (const onset of onsets) {
+  for (const [n, onset] of onsets.entries()) {
     const kind = useSplit ? classifyOnset(buffer, onset) : 'eigen';
     const target = useSplit ? (targets[kind] || targets.kick) : track;
     const targetClip = target.clips[target.clip];
@@ -373,7 +406,9 @@ async function beatbox(track) {
     const [index] = onsetsToSteps([onset], {
       startStep, stepSeconds, stepCount: targetClip.steps.length,
     });
-    targetClip.steps[index] = { on: index % 4 === 0 ? 2 : 1, deg: targetClip.steps[index].deg };
+    const relativ = loudness[n] / loudest;
+    const on = relativ > 0.8 ? ACCENT : relativ < 0.45 ? GHOST : ON;
+    targetClip.steps[index] = { on, deg: targetClip.steps[index].deg };
     written[kind] += 1;
   }
 
@@ -382,6 +417,16 @@ async function beatbox(track) {
   sequencer.setStatus(useSplit
     ? `${onsets.length} Anschläge verteilt · Kick ${written.kick} · Snare ${written.snare} · HiHat ${written.hat}`
     : `${onsets.length} Anschläge auf „${track.name}“`);
+}
+
+// Lautstärke eines Anschlags: Spitzenwert in den ersten 40 ms danach.
+function onsetPeak(buffer, time) {
+  const data = buffer.getChannelData(0);
+  const from = Math.max(0, Math.floor(time * buffer.sampleRate));
+  const to = Math.min(data.length, from + Math.round(0.04 * buffer.sampleRate));
+  let peak = 0;
+  for (let i = from; i < to; i++) peak = Math.max(peak, Math.abs(data[i]));
+  return peak;
 }
 
 // ------------------------------------------------------------- Sampler
@@ -754,9 +799,9 @@ function syncControls() {
 // ------------------------------------------------------------- Bedienung
 
 renderPalette($('#palette'), (block) => {
-  const track = selectedTrack();
-  if (!track) return;
-  track.chain.push(block);
+  const chain = selectedId === MASTER ? project.master.chain : selectedTrack()?.chain;
+  if (!chain) return;
+  chain.push(block);
   engine.sync();
   rack.render();
   save();
@@ -847,6 +892,97 @@ $('#volume').addEventListener('input', (e) => {
 });
 
 $('#panic').addEventListener('click', () => engine.panic());
+
+// ------------------------------------------------------------- Mitschnitt
+
+// Hinter dem Limiter abgegriffen, also genau das, was aus den Boxen kam.
+function updateTape() {
+  const btn = $('#tape');
+  const clock = $('#tape-time');
+  if (!btn) return;
+  const on = engine.taping;
+  btn.classList.toggle('taping', on);
+  btn.querySelector('.glyph').textContent = on ? '■' : '●';
+  // Die Laufzeit steht in der Reiterzeile, nicht auf dem Knopf: sonst waechst
+  // die Kopfzeile waehrend der Aufnahme und das Layout springt.
+  if (clock) {
+    clock.hidden = !on;
+    const s = Math.floor(engine.tapeSeconds());
+    clock.textContent = on ? `● ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '';
+  }
+}
+
+$('#tape').addEventListener('click', async () => {
+  if (engine.taping) {
+    const blob = await engine.stopTape();
+    updateTape();
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    a.href = url;
+    a.download = `${(project.name || 'set').replace(/[^\w-]+/g, '_')}-${stamp}.webm`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return;
+  }
+  userSuspended = false;
+  await ensureAudio();
+  if (!engine.startTape()) {
+    $('#tape').querySelector('.util-text').textContent = 'kein Mitschnitt';
+    return;
+  }
+  updateTape();
+});
+
+// ------------------------------------------------------------------ MIDI
+
+const midi = new MidiIn({
+  onStatus: ({ state, devices = [] }) => {
+    const btn = $('#midi');
+    if (!btn) return;
+    btn.classList.toggle('on', state === 'bereit' || state === 'lernt');
+    btn.querySelector('.util-text').textContent = state === 'lernt' ? 'dreh …'
+      : state === 'nicht unterstützt' ? 'kein MIDI'
+      : 'MIDI';
+    // Der Geraetename gehoert in den Tooltip, nicht in die Kopfzeile.
+    btn.title = devices.length ? `MIDI: ${devices.join(', ')}` : 'MIDI-Controller verbinden';
+    live.setMidi({ open: midi.open, learning: midi.learning, map: project.midi.map });
+  },
+  onControl: ({ key, value, learnedFor }) => {
+    if (learnedFor !== null) {
+      // Eine Zuordnung ist eindeutig: derselbe Drehregler liegt nicht auf zweien.
+      for (const [k, slot] of Object.entries(project.midi.map)) {
+        if (slot === learnedFor) delete project.midi.map[k];
+      }
+      project.midi.map[key] = learnedFor;
+      save();
+      live.setMidi({ open: true, learning: null, map: project.midi.map });
+      live.render();
+    }
+    const slot = project.midi.map[key];
+    if (!Number.isInteger(slot)) return;
+    const macro = project.macros?.[slot];
+    if (!macro) return;
+    script.setTarget(macro.target, macro.min + (macro.max - macro.min) * value);
+    live.refreshMacro(slot);
+    save();
+  },
+  onNoteOn: (note, velocity) => {
+    const track = selectedTrack();
+    if (track) engine.noteOn(track.id, note, undefined, { velocity });
+  },
+  onNoteOff: (note) => {
+    const track = selectedTrack();
+    if (track) engine.noteOff(track.id, note);
+  },
+});
+
+$('#midi').addEventListener('click', async () => {
+  if (midi.learning !== null) return midi.cancelLearn();
+  await midi.start();
+  return undefined;
+});
 
 // Soundcheck: sagt in einem Tipp, ob überhaupt Ton aus dem Gerät kommt.
 // Bleibt es still, ist auf iOS fast immer der Stummschalter am Gehäuse schuld –
@@ -1007,6 +1143,7 @@ window.blockwerk = {
 
 // Der Herzschlag der Oberflaeche: ein kurzer Puls auf jeder Zaehlzeit.
 const root = document.documentElement;
+let frameCount = 0;
 (function frame() {
   backdrop.draw();
   if (transport.playing) {
@@ -1024,6 +1161,7 @@ const root = document.documentElement;
       applyGestureValue(track, valueAtStep(track, position));
     }
   }
+  if (engine.taping && (frameCount++ & 31) === 0) updateTape();
   if (currentView === 'sound') rack.setLevel(engine.running ? engine.level() : 0);
   if (currentView === 'seq') sequencer.tick();
   if (currentView === 'live') {

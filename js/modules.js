@@ -667,12 +667,79 @@ const reverbFx = {
   },
 };
 
+// Seitenkette. Es fliesst kein Audiosignal von der Quellspur hierher – die
+// Engine meldet nur, dass dort ein Anschlag war, und hier faellt der Pegel kurz
+// weg. Das sitzt genauer als eine echte Huellkurvenverfolgung und kostet nichts.
+const duckFx = {
+  id: 'duck',
+  kind: 'fx',
+  name: 'Duck',
+  hint: 'Zieht den Pegel weg, sobald eine andere Spur anschlägt – das Pumpen.',
+  params: [
+    { id: 'source', label: 'Hört auf', type: 'track', def: null },
+    { id: 'amount', label: 'Tiefe', min: 0, max: 1, def: 0.8 },
+    { id: 'attack', label: 'Zugriff', min: 0.001, max: 0.08, def: 0.004, unit: 's', scale: 'log' },
+    { id: 'release', label: 'Erholung', min: 0.02, max: 1.2, def: 0.22, unit: 's', scale: 'log' },
+    { id: 'follow', label: 'Anschlagstärke', min: 0, max: 1, def: 0.5 },
+  ],
+  create(ctx) {
+    const node = ctx.createGain();
+    const state = { amount: 0.8, attack: 0.004, release: 0.22, follow: 0.5 };
+    let until = 0;
+    return {
+      input: node,
+      output: node,
+      listensTo: null,
+      duck(time, velocity = 1) {
+        const t = Math.max(time, ctx.currentTime);
+        // Eine Geisternote soll weniger ziehen als ein Akzent – wie viel davon
+        // durchschlaegt, bestimmt „Anschlagstärke".
+        const strength = state.amount * (1 - state.follow + state.follow * velocity);
+        const floor = Math.max(0, 1 - strength);
+        const end = t + state.attack + state.release;
+        // Ein schon laufender, laengerer Einbruch wird nicht verkuerzt.
+        if (t < until && end < until) return;
+        until = end;
+        node.gain.cancelScheduledValues(t);
+        node.gain.setValueAtTime(node.gain.value, t);
+        node.gain.linearRampToValueAtTime(floor, t + state.attack);
+        node.gain.setTargetAtTime(1, t + state.attack, Math.max(0.01, state.release / 3));
+      },
+      set(id, v) {
+        if (id === 'source') this.listensTo = v || null;
+        if (id === 'amount') state.amount = v;
+        if (id === 'attack') state.attack = v;
+        if (id === 'release') state.release = v;
+        if (id === 'follow') state.follow = v;
+      },
+    };
+  },
+};
+
+// Live-Eingang: das Mikrofon läuft durch die Kette dieser Spur. Hier entsteht
+// kein Ton je Note – das Signal hängt die Engine direkt vor die Blöcke. Die
+// Stimme bleibt still, damit ein Raster auf dieser Spur nichts hineinknackt.
+const liveInput = {
+  id: 'input',
+  kind: 'source',
+  name: 'Eingang',
+  hint: 'Mikrofon oder Line-In durch die Effektkette. Kopfhörer aufsetzen – sonst pfeift es.',
+  liveInput: true,
+  params: [
+    { id: 'gain', label: 'Pegel', min: 0, max: 2, def: 0.6 },
+  ],
+  spawn(ctx) {
+    return silentVoice(ctx.createGain());
+  },
+};
+
 export const MODULES = {
   osc: oscillator,
   noise,
   fm: fmVoice,
   perc: percussion,
   sampler: samplerVoice,
+  input: liveInput,
   filter: filterFx,
   drive: driveFx,
   crusher: crusherFx,
@@ -680,6 +747,7 @@ export const MODULES = {
   tremolo: tremoloFx,
   delay: delayFx,
   reverb: reverbFx,
+  duck: duckFx,
 };
 
 export const SOURCES = Object.values(MODULES).filter((m) => m.kind === 'source');

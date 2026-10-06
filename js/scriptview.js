@@ -81,15 +81,20 @@ export class ScriptView {
           <tr><td><code>add lead crusher</code></td><td>Effekt anhängen – die Regler dafür erscheinen sofort im Klang-Reiter</td></tr>
           <tr><td><code>remove lead crusher</code></td><td>Effekt wieder entfernen</td></tr>
           <tr><td><code>bypass lead delay on</code></td><td>Effekt überbrücken (<code>on</code> / <code>off</code>)</td></tr>
-          <tr><td><code>pattern kick C = x . . . x . . .</code></td><td>Clip aus dem Script schreiben (1, 2 oder 4 Takte)</td></tr>
+          <tr><td><code>pattern kick C = x . o . X . . x*3</code></td><td>Clip aus dem Script schreiben;
+            <code>o</code> Geisternote, <code>x*3</code> Roll aus drei Anschlägen</td></tr>
+          <tr><td><code>add master filter</code></td><td>Effekt auf die <b>Summe</b> – <code>master.filter.freq 200 -&gt; 12000 over 8 bars</code> ist der Sweep über den ganzen Mix</td></tr>
+          <tr><td><code>add bass duck</code></td><td>Seitenkette: der Bass atmet unter einer anderen Spur weg (Quelle im Klang-Reiter wählen)</td></tr>
           <tr><td><code>slice chop 16</code></td><td>Sample der Spur neu zerlegen – auch <code>slice chop transients</code></td></tr>
           <tr><td><code>control 1 lead.delay.mix as Delay</code></td><td>Live-Regler belegen; Bereich optional: <code>… 0 0.8 as Delay</code></td></tr>
           <tr><td><code>end</code></td><td>Wiedergabe anhalten</td></tr>
         </table>
         <p>Ziele für Fahrten: <code>spur.volume</code>, <code>spur.gate</code>,
-           <code>spur.offset</code>, <code>spur.source.&lt;parameter&gt;</code>,
+           <code>spur.offset</code>, <code>spur.nudge</code> (Versatz in ms),
+           <code>spur.source.&lt;parameter&gt;</code>,
            <code>spur.&lt;effekt&gt;.&lt;parameter&gt;</code>,
-           <code>master.volume</code>. Mehrere Befehle je Zeile mit Komma trennen,
+           <code>master.volume</code>, <code>master.&lt;effekt&gt;.&lt;parameter&gt;</code>.
+           Mehrere Befehle je Zeile mit Komma trennen,
            <code>#</code> leitet einen Kommentar ein.</p>
         <p>Namen dürfen Leerzeichen haben: <code>mute Spur 1</code> und
            <code>Spur 1.volume 0.2 -&gt; 0.9</code> gehen genauso wie

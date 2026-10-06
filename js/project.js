@@ -2,7 +2,7 @@
 // und die Oberfläche lesen daraus, niemand hält heimlich eigenen Zustand.
 
 import { MODULES, defaultParams } from './modules.js';
-import { STEPS_PER_BAR, emptySteps, parseSteps } from './pattern.js';
+import { STEPS_PER_BAR, ACCENT, GHOST, OFF, ON, ROLLS, emptySteps, parseSteps } from './pattern.js';
 
 export const PROJECT_VERSION = 2;
 export const CLIP_SLOTS = ['A', 'B', 'C', 'D'];
@@ -10,6 +10,10 @@ export const CLIP_SLOTS = ['A', 'B', 'C', 'D'];
 // Shuffle bis 75 %: der klassische Triolen-Shuffle liegt bei 67 %, und darüber
 // hinaus will man im Hip-Hop auch mal schleppen dürfen.
 export const MAX_SWING = 0.75;
+
+// Versatz je Spur in Millisekunden. 50 ms sind schon viel – der klassische
+// „hinter dem Beat"-Trick lebt zwischen 10 und 25.
+export const MAX_NUDGE = 60;
 export { STEPS_PER_BAR };
 
 export const SCALES = {
@@ -90,6 +94,7 @@ export function makeTrack(partial = {}) {
     scale: partial.scale || null,          // null = die Stimmung des Sets
     tuned: partial.tuned ?? followsKeyByDefault(type),
     gate: partial.gate ?? 0.9,
+    nudge: partial.nudge ?? 0,             // Millisekunden vor/hinter dem Raster
     clips: CLIP_SLOTS.map((_, i) => {
       const text = partial.clips?.[i];
       return text === undefined ? null : makeClip({ bars: partial.bars || 1, text });
@@ -137,8 +142,13 @@ export function makeProject(name = 'Neues Set') {
     scenes: [],
     samples: [],
     macros: [null, null, null, null],
+    // Welcher Drehregler des Controllers auf welchem Live-Regler liegt.
+    // Gehoert ins Set, damit Controller und Set zusammen reisen.
+    midi: { map: {} },
     script: { text: '', enabled: false },
-    master: { volume: 0.7 },
+    // Der Master hat dieselbe Blockkette wie eine Spur. Ohne die gibt es
+    // keinen Filtersweep ueber den ganzen Mix – und damit keinen Aufbau.
+    master: { volume: 0.7, chain: [] },
   };
 }
 
@@ -241,12 +251,26 @@ function normalizeClip(raw) {
   const want = bars * STEPS_PER_BAR;
   const steps = Array.from({ length: want }, (_, i) => {
     const s = raw.steps?.[i];
-    return {
-      on: s && [0, 1, 2].includes(s.on) ? s.on : 0,
+    const step = {
+      on: s && [OFF, ON, ACCENT, GHOST].includes(s.on) ? s.on : OFF,
       deg: Number.isInteger(s?.deg) ? s.deg : 0,
     };
+    if (ROLLS.includes(s?.roll) && s.roll >= 2) step.roll = s.roll;
+    return step;
   });
   return { id: raw.id || uid('c'), bars, steps };
+}
+
+// Dieselbe Kette haengt an einer Spur wie am Master – deshalb eine Funktion.
+export function normalizeChain(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .filter((b) => MODULES[b?.type]?.kind === 'fx')
+    .map((b) => ({
+      id: b.id || uid('b'),
+      type: b.type,
+      bypass: !!b.bypass,
+      params: { ...defaultParams(b.type), ...(b.params || {}) },
+    }));
 }
 
 function normalizeTrack(raw, index) {
@@ -258,14 +282,7 @@ function normalizeTrack(raw, index) {
     sourceParams: raw?.source?.params || {},
   });
   track.id = raw?.id || track.id;
-  track.chain = (Array.isArray(raw?.chain) ? raw.chain : [])
-    .filter((b) => MODULES[b?.type]?.kind === 'fx')
-    .map((b) => ({
-      id: b.id || uid('b'),
-      type: b.type,
-      bypass: !!b.bypass,
-      params: { ...defaultParams(b.type), ...(b.params || {}) },
-    }));
+  track.chain = normalizeChain(raw?.chain);
   track.mix = {
     volume: clamp01(raw?.mix?.volume ?? 0.8),
     mute: !!raw?.mix?.mute,
@@ -277,6 +294,7 @@ function normalizeTrack(raw, index) {
   track.scale = SCALES[raw?.scale] ? raw.scale : null;
   track.tuned = typeof raw?.tuned === 'boolean' ? raw.tuned : followsKeyByDefault(type);
   track.gate = typeof raw?.gate === 'number' ? Math.max(0.05, Math.min(4, raw.gate)) : 0.9;
+  track.nudge = Number.isFinite(raw?.nudge) ? Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, Math.round(raw.nudge))) : 0;
   track.clips = CLIP_SLOTS.map((_, i) => normalizeClip(raw?.clips?.[i]));
   if (!track.clips.some(Boolean)) track.clips[0] = makeClip({});
   track.clip = Number.isInteger(raw?.clip) && raw.clip >= 0 && raw.clip < CLIP_SLOTS.length ? raw.clip : 0;
@@ -324,13 +342,18 @@ export function normalizeProject(raw) {
   project.root = Number.isInteger(raw?.root) ? Math.max(12, Math.min(84, raw.root)) : 48;
   project.scale = SCALES[raw?.scale] ? raw.scale : 'minor';
   project.master.volume = clamp01(raw?.master?.volume ?? 0.7);
+  project.master.chain = normalizeChain(raw?.master?.chain);
   const tracks = Array.isArray(raw?.tracks) ? raw.tracks : [];
   project.tracks = tracks.length
     ? tracks.slice(0, 8).map(normalizeTrack)
     : demoProject().tracks;
   project.scenes = normalizeScenes(raw?.scenes, project.tracks);
   project.samples = normalizeSamples(raw?.samples);
-  project.macros = normalizeMacros(raw?.macros, project.tracks);
+  project.macros = normalizeMacros(raw?.macros, project.tracks, project.master.chain);
+  project.midi = { map: {} };
+  for (const [key, slot] of Object.entries(raw?.midi?.map || {})) {
+    if (/^\d+:\d+$/.test(key) && Number.isInteger(slot) && slot >= 0 && slot < 4) project.midi.map[key] = slot;
+  }
   project.script = {
     text: typeof raw?.script?.text === 'string' ? raw.script.text.slice(0, 20000) : '',
     enabled: !!raw?.script?.enabled,
@@ -383,13 +406,15 @@ function normalizeGesture(raw) {
 }
 
 // Live-Regler duerfen nur auf Ziele zeigen, die es noch gibt.
-function normalizeMacros(raw, tracks) {
+function normalizeMacros(raw, tracks, masterChain = []) {
   const macros = [null, null, null, null];
   if (!Array.isArray(raw)) return macros;
   raw.slice(0, 4).forEach((macro, i) => {
     const target = macro?.target;
     if (!target || typeof target !== 'object') return;
-    if (target.kind !== 'master') {
+    if (target.kind === 'masterFx') {
+      if (!masterChain.some((b) => b.type === target.blockType)) return;
+    } else if (target.kind !== 'master') {
       const track = tracks.find((t) => t.id === target.trackId);
       if (!track) return;
       if (target.kind === 'fx' && !track.chain.some((b) => b.type === target.blockType)) return;

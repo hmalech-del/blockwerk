@@ -4,6 +4,7 @@
 // vorausgeplant. Die Audio-Uhr bestimmt den Groove, nicht der Timer.
 
 import { STEPS_PER_BAR, trackMidi } from './project.js';
+import { MAX_ROLL, velocityOf } from './pattern.js';
 import { eventsAtStep } from './gesture.js';
 
 const INTERVAL_MS = 25;
@@ -113,18 +114,30 @@ export class Transport {
       if (!cell || !cell.on) continue;
 
       const midi = trackMidi(project, track, cell.deg);
-      const record = this.engine.noteOn(track.id, midi, time + swingOffset, {
-        dur: Math.max(0.02, track.gate * stepDur),
-        velocity: cell.on === 2 ? 1 : 0.68,
-        deg: cell.deg,
-      });
-      if (record) this.scheduled.push({ step, time: time + swingOffset, trackId: track.id, record });
+      // Der Versatz je Spur ist das, was Swing nicht kann: die Snare hinter
+      // dem Raster, die Hats davor. Millisekunden, nicht Prozent.
+      const nudge = (track.nudge || 0) / 1000;
+      const hits = Math.max(1, cell.roll >= 2 ? Math.min(MAX_ROLL, cell.roll) : 1);
+      const span = stepDur / hits;
+
+      for (let i = 0; i < hits; i++) {
+        const at = time + swingOffset + nudge + i * span;
+        // Ein Roll faellt zum Ende hin leicht ab, sonst klingt er wie ein Fehler.
+        const taper = hits > 1 ? 1 - (i / hits) * 0.25 : 1;
+        const record = this.engine.noteOn(track.id, midi, at, {
+          dur: Math.max(0.02, track.gate * span),
+          velocity: velocityOf(cell) * taper,
+          deg: cell.deg,
+        });
+        if (record) this.scheduled.push({ step, time: at, trackId: track.id, record });
+      }
     }
 
     // Gesten liegen zwischen den Schritten – deshalb mit Bruchteil planen.
     for (const track of project.tracks) {
       for (const event of eventsAtStep(track, step)) {
-        const offset = (event.t - (step % Math.max(1, this.loopFor(track)))) * stepDur;
+        const offset = (event.t - (step % Math.max(1, this.loopFor(track)))) * stepDur
+          + (track.nudge || 0) / 1000;
         const midi = trackMidi(project, track, event.deg);
         const record = this.engine.noteOn(track.id, midi, time + Math.max(0, offset), {
           dur: Math.max(0.03, event.dur * stepDur),

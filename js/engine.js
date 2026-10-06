@@ -6,6 +6,9 @@ import { sliceBounds } from './samples.js';
 
 export const MAX_VOICES_PER_TRACK = 8;
 
+// Der Master ist im Modell keine Spur, braucht aber dieselben Griffe.
+export const MASTER = 'master';
+
 export function midiToFreq(midi) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
@@ -47,7 +50,10 @@ export class Engine {
       this.analyser.fftSize = 1024;
 
       this.master.gain.value = this.project ? this.project.master.volume : 0.7;
-      this.master.connect(this.limiter).connect(this.analyser).connect(ctx.destination);
+      // Zwischen Summe und Limiter liegt die Masterkette. Sie wird in
+      // syncMaster() verdrahtet; ohne Bloecke ist es eine gerade Leitung.
+      this.masterChain = { instances: new Map(), in: this.master, out: ctx.createGain() };
+      this.masterChain.out.connect(this.limiter).connect(this.analyser).connect(ctx.destination);
       this.sync();
     }
     if (this.ctx.state !== 'running') await this.ctx.resume();
@@ -114,7 +120,45 @@ export class Engine {
       try { rt.out.disconnect(); } catch (e) { /* egal */ }
       this.tracks.delete(id);
     }
+    this.syncMaster();
     this.applyMix();
+  }
+
+  // Der Master bekommt dieselbe Behandlung wie eine Spur, nur ohne Stimmen.
+  syncMaster() {
+    const mc = this.masterChain;
+    const chain = this.project?.master?.chain || [];
+    if (!mc) return;
+
+    const alive = new Set();
+    for (const block of chain) {
+      alive.add(block.id);
+      if (mc.instances.has(block.id)) continue;
+      const mod = MODULES[block.type];
+      if (!mod) continue;
+      const inst = mod.create(this.ctx);
+      for (const spec of mod.params) inst.set(spec.id, block.params[spec.id]);
+      mc.instances.set(block.id, inst);
+    }
+    for (const [id, inst] of [...mc.instances]) {
+      if (alive.has(id)) continue;
+      this.disposeInstance(inst);
+      mc.instances.delete(id);
+    }
+
+    mc.in.disconnect();
+    for (const inst of mc.instances.values()) {
+      try { inst.output.disconnect(); } catch (e) { /* egal */ }
+    }
+    let node = mc.in;
+    for (const block of chain) {
+      if (block.bypass) continue;
+      const inst = mc.instances.get(block.id);
+      if (!inst) continue;
+      node.connect(inst.input);
+      node = inst.output;
+    }
+    node.connect(mc.out);
   }
 
   syncTrack(def) {
@@ -129,6 +173,21 @@ export class Engine {
       };
       rt.out.connect(this.master);
       this.tracks.set(def.id, rt);
+    }
+
+    // Live-Eingang: das Mikrofon haengt vor der Kette, nicht an einer Note.
+    const wantsInput = !!MODULES[def.source.type]?.liveInput;
+    if (wantsInput && !rt.inputGain) {
+      rt.inputGain = this.ctx.createGain();
+      rt.inputGain.gain.value = def.source.params.gain ?? 0.6;
+      rt.inputGain.connect(rt.chainIn);
+      this.attachInput(rt);
+    } else if (!wantsInput && rt.inputGain) {
+      try { rt.inputGain.disconnect(); } catch (e) { /* egal */ }
+      rt.inputGain = null;
+      this.releaseInputIfUnused();
+    } else if (rt.inputGain) {
+      rt.inputGain.gain.value = def.source.params.gain ?? 0.6;
     }
 
     const alive = new Set();
@@ -184,11 +243,112 @@ export class Engine {
   }
 
   setParam(trackId, blockId, paramId, value) {
-    this.tracks.get(trackId)?.instances.get(blockId)?.set(paramId, value);
+    const holder = trackId === MASTER ? this.masterChain : this.tracks.get(trackId);
+    holder?.instances.get(blockId)?.set(paramId, value);
   }
+
+  // Alle Duck-Bloecke, die auf diese Spur hoeren, bekommen den Anschlag
+  // gemeldet. Das ist die Seitenkette: der Bass atmet unter dem Kick weg.
+  duckFrom(trackId, time, velocity = 1) {
+    for (const holder of [...this.tracks.values(), this.masterChain]) {
+      if (!holder) continue;
+      for (const inst of holder.instances.values()) {
+        if (inst.duck && inst.listensTo === trackId) inst.duck(time, velocity);
+      }
+    }
+  }
+
 
   setMasterVolume(v) {
     if (this.ctx) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
+  }
+
+  // ------------------------------------------------------- Live-Eingang
+
+  // Ein Strom fuer alle Spuren, die ihn brauchen – zweimal getUserMedia waere
+  // zweimal dieselbe Erlaubnisfrage und zweimal Latenz.
+  async openInput() {
+    if (this.inputNode) return this.inputNode;
+    if (!this.inputPending) {
+      this.inputPending = navigator.mediaDevices
+        .getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
+        .then((stream) => {
+          this.inputStream = stream;
+          this.inputNode = this.ctx.createMediaStreamSource(stream);
+          return this.inputNode;
+        })
+        .finally(() => { this.inputPending = null; });
+    }
+    return this.inputPending;
+  }
+
+  async attachInput(rt) {
+    try {
+      const node = await this.openInput();
+      if (rt.inputGain && node) node.connect(rt.inputGain);
+    } catch (e) {
+      this.onInputError(e);
+    }
+  }
+
+  onInputError() {}
+
+  releaseInputIfUnused() {
+    if ([...this.tracks.values()].some((rt) => rt.inputGain)) return;
+    try { this.inputNode?.disconnect(); } catch (e) { /* egal */ }
+    this.inputStream?.getTracks().forEach((t) => t.stop());
+    this.inputNode = null;
+    this.inputStream = null;
+  }
+
+  setInputGain(trackId, v) {
+    const rt = this.tracks.get(trackId);
+    if (rt?.inputGain && this.ctx) rt.inputGain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.02);
+  }
+
+  get inputOpen() {
+    return !!this.inputNode;
+  }
+
+  // ---------------------------------------------------------- Mitschnitt
+
+  // Hinter dem Limiter abgegriffen: was mitgeschnitten wird, ist genau das,
+  // was aus den Boxen kam. Eine Stunde spielen und nichts in der Hand haben
+  // ist das Gegenteil von einem Instrument.
+  startTape() {
+    if (!this.ctx || this.tape) return false;
+    if (typeof MediaRecorder === 'undefined' || !this.ctx.createMediaStreamDestination) return false;
+    const dest = this.ctx.createMediaStreamDestination();
+    this.analyser.connect(dest);
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']
+      .find((m) => MediaRecorder.isTypeSupported?.(m));
+    const rec = new MediaRecorder(dest.stream, mime ? { mimeType: mime } : undefined);
+    const chunks = [];
+    rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    this.tape = { rec, dest, chunks, startedAt: this.ctx.currentTime, type: mime || 'audio/webm' };
+    rec.start(1000);
+    return true;
+  }
+
+  get taping() {
+    return !!this.tape;
+  }
+
+  tapeSeconds() {
+    return this.tape ? this.ctx.currentTime - this.tape.startedAt : 0;
+  }
+
+  stopTape() {
+    const tape = this.tape;
+    if (!tape) return Promise.resolve(null);
+    this.tape = null;
+    return new Promise((resolve) => {
+      tape.rec.onstop = () => {
+        try { this.analyser.disconnect(tape.dest); } catch (e) { /* egal */ }
+        resolve(tape.chunks.length ? new Blob(tape.chunks, { type: tape.type }) : null);
+      };
+      tape.rec.stop();
+    });
   }
 
   // ---------------------------------------------------------- Stimmen
@@ -250,6 +410,7 @@ export class Engine {
 
     const record = { voice, amp, midi, startedAt: t };
     rt.active.add(record);
+    this.duckFrom(trackId, t, Math.max(0, Math.min(1, velocity)));
 
     if (dur === null) {
       rt.held.set(midi, record);

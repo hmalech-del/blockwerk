@@ -444,6 +444,75 @@ await page.click('[data-view="live"]');
 await page.waitForTimeout(150);
 check('Ausgeschaltetes Script zeigt keine Vorschau', !(await page.isVisible('.script-next')));
 
+// ------------------------------------------------ Summe und Feineinstellung
+// Der Filtersweep ueber den ganzen Mix ist der wichtigste Griff im Aufbau –
+// er muss im Script genauso erreichbar sein wie ein Spureffekt.
+
+const summe = await page.evaluate(async () => {
+  const { parseScript } = await import('/js/script.js');
+  const p = window.blockwerk.project();
+  const run = (text) => {
+    const { events, errors } = parseScript(text, p);
+    return { types: events.map((e) => e.type), fehler: errors.map((e) => e.message), events };
+  };
+  return {
+    ohneBlock: run('bar 1 master.filter.freq 200 -> 12000 over 8 bars'),
+    mitAdd: run('bar 1 add master filter\nbar 2 master.filter.freq 200 -> 12000 over 8 bars'),
+    bypass: run('bar 1 add master drive\nbar 3 bypass master drive on'),
+    entfernen: run('bar 1 add master filter\nbar 9 remove master filter'),
+    lautstaerke: run('bar 1 master.volume 0.8 -> 0.2'),
+    quatsch: run('bar 1 add master wobble'),
+    nudge: run('bar 1 Bass.nudge 0 -> 20 over 4 bars'),
+    regler: run('bar 1 add master filter, control 1 master.filter.freq 200 12000 as Sweep'),
+  };
+});
+
+const okRun = (r, types) => r.fehler.length === 0 && r.types.join(',') === types;
+check('Ein Mastereffekt ohne Block meldet sich, statt still zu versagen',
+  summe.ohneBlock.types.length === 0 && /add master/.test(summe.ohneBlock.fehler[0] || ''),
+  summe.ohneBlock.fehler[0] || '');
+check('Filterfahrt über die Summe', okRun(summe.mitAdd, 'addFx,ramp')
+  && summe.mitAdd.events[1].target.kind === 'masterFx',
+  summe.mitAdd.fehler.join(' | ') || summe.mitAdd.types.join(','));
+check('bypass und remove kennen den Master',
+  okRun(summe.bypass, 'addFx,bypassFx') && okRun(summe.entfernen, 'addFx,removeFx'),
+  [...summe.bypass.fehler, ...summe.entfernen.fehler].join(' | '));
+check('master.volume bleibt, wie es war', okRun(summe.lautstaerke, 'ramp'),
+  summe.lautstaerke.fehler.join(' | '));
+check('Ein erfundener Mastereffekt ist ein Fehler',
+  summe.quatsch.types.length === 0 && summe.quatsch.fehler.length === 1,
+  summe.quatsch.fehler[0] || '');
+check('Der Versatz in ms ist ein Fahrziel', okRun(summe.nudge, 'ramp')
+  && summe.nudge.events[0].target.param === 'nudge',
+  summe.nudge.fehler.join(' | '));
+check('Ein Live-Regler darf auf der Summe liegen', okRun(summe.regler, 'addFx,control'),
+  summe.regler.fehler.join(' | '));
+
+// Und das Ganze muss auch wirklich laufen, nicht nur parsen.
+const gelaufen = await page.evaluate(async () => {
+  const { script, project, engine } = window.blockwerk;
+  const p = project();
+  p.master.chain = [];
+  p.script.text = 'bar 1 add master filter\nbar 2 master.filter.freq 400 -> 4000 over 2 bars';
+  p.script.enabled = true;
+  script.compile();
+  script.onBar(1, engine.ctx.currentTime);
+  const nachTakt1 = p.master.chain.map((b) => b.type).join(',');
+  script.updateRamps(16);                       // Takt 2, Anfang der Fahrt
+  const start = p.master.chain[0]?.params.freq;
+  script.updateRamps(16 + 32);                  // Ende der Fahrt
+  const ende = p.master.chain[0]?.params.freq;
+  const verdrahtet = engine.masterChain ? engine.masterChain.instances.size : -1;
+  p.script.enabled = false;
+  return { nachTakt1, start, ende, verdrahtet };
+});
+check('„add master" hängt den Block wirklich in die Summe',
+  gelaufen.nachTakt1 === 'filter' && gelaufen.verdrahtet === 1,
+  `Kette ${gelaufen.nachTakt1}, ${gelaufen.verdrahtet} verdrahtet`);
+check('Die Fahrt über die Summe läuft von 400 auf 4000',
+  Math.round(gelaufen.start) === 400 && Math.round(gelaufen.ende) === 4000,
+  `${Math.round(gelaufen.start)} -> ${Math.round(gelaufen.ende)} Hz`);
+
 await browser.close();
 await server.close();
 errors.forEach((e) => console.log(' -', e));

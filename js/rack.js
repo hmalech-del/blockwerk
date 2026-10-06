@@ -2,10 +2,13 @@
 // Umsortieren per Drag & Drop oder mit ◀ ▶ am Block.
 
 import { MODULES, SOURCES, EFFECTS, defaultParams } from './modules.js';
-import { SCALES, uid } from './project.js';
+import { MAX_NUDGE, SCALES, uid } from './project.js';
+import { MASTER } from './engine.js';
 import { MOODS } from './ideas.js';
 
 const SLIDER_STEPS = 1000;
+
+const MASTER_VOLUME = { id: 'volume', label: 'Pegel', min: 0, max: 1, def: 0.7 };
 
 // Frequenz- und Zeitregler fühlen sich linear falsch an – daher optional
 // logarithmische Abbildung zwischen Reglerposition und echtem Wert.
@@ -24,6 +27,7 @@ export function fromSlider(spec, pos) {
 }
 
 export function formatValue(spec, value) {
+  if (spec.type === 'track') return value || '–';
   if (spec.type === 'select') return spec.options.find((o) => o.value === value)?.label ?? value;
   if (spec.unit === 'Hz') return value >= 1000 ? `${(value / 1000).toFixed(2)} kHz` : `${Math.round(value)} Hz`;
   if (spec.unit === 's') return value < 1 ? `${Math.round(value * 1000)} ms` : `${value.toFixed(2)} s`;
@@ -38,6 +42,8 @@ const TRACK_PARAMS = [
   // Versatz in Stufen statt Halbtoenen: verschoben, aber nie daneben.
   { id: 'offset', label: 'Versatz', min: -7, max: 7, def: 0, step: 1 },
   { id: 'gate', label: 'Notenlänge', min: 0.05, max: 4, def: 0.9, scale: 'log' },
+  // Was Swing nicht kann: diese eine Spur hinter oder vor das Raster legen.
+  { id: 'nudge', label: 'Versatz (Zeit)', min: -MAX_NUDGE, max: MAX_NUDGE, def: 0, step: 1, unit: 'ms' },
   {
     id: 'tuned', label: 'Folgt der Tonart', type: 'select', def: 'ja',
     options: [{ value: 'ja', label: 'ja' }, { value: 'nein', label: 'nein (Schlagzeug)' }],
@@ -56,11 +62,22 @@ function trackValue(track, spec) {
   return track[spec.id] ?? spec.def;
 }
 
-function paramMarkup(scope, blockId, spec, value) {
+// Ein „track"-Parameter waehlt eine Spur des Sets – der Duck braucht das, und
+// die Liste kann nicht im Modul stehen, weil sie sich mit dem Set aendert.
+function trackOptions(project, selfId) {
+  return [{ value: '', label: '– keine –' }].concat(
+    (project?.tracks || [])
+      .filter((t) => t.id !== selfId)
+      .map((t) => ({ value: t.id, label: t.name }))
+  );
+}
+
+function paramMarkup(scope, blockId, spec, value, project = null, selfId = null) {
   const key = `${scope}:${blockId}:${spec.id}`;
-  if (spec.type === 'select') {
-    const opts = spec.options
-      .map((o) => `<option value="${o.value}"${o.value === value ? ' selected' : ''}>${o.label}</option>`)
+  if (spec.type === 'select' || spec.type === 'track') {
+    const options = spec.type === 'track' ? trackOptions(project, selfId) : spec.options;
+    const opts = options
+      .map((o) => `<option value="${o.value}"${o.value === (value ?? '') ? ' selected' : ''}>${o.label}</option>`)
       .join('');
     return `
       <label class="param param-select" data-key="${key}">
@@ -103,22 +120,37 @@ export class Rack {
   }
 
   // Ohne das müsste man zum Spurwechsel in einen anderen Reiter und zurück.
+  // Der Master steht als letzter Eintrag mit drin: er hat dieselbe Kette.
   renderPicker() {
     if (!this.picker) return;
     const selected = this.hooks.getSelected();
-    this.picker.innerHTML = this.hooks.getProject().tracks.map((track) => `
+    const tracks = this.hooks.getProject().tracks.map((track) => `
       <button class="track-pick${track.id === selected ? ' on' : ''}"
               data-act="pick" data-id="${track.id}" style="--track:${track.color}">
         <span class="dot"></span>${track.name}
       </button>`).join('');
+    this.picker.innerHTML = `${tracks}
+      <button class="track-pick master${selected === MASTER ? ' on' : ''}"
+              data-act="pick" data-id="${MASTER}">∑ Master</button>`;
+  }
+
+  // Was gerade bearbeitet wird: eine Spur oder die Summe.
+  target() {
+    const project = this.hooks.getProject();
+    if (this.hooks.getSelected() === MASTER) {
+      return { kind: 'master', id: MASTER, chain: project.master.chain, project };
+    }
+    const track = this.hooks.getTrack();
+    return track ? { kind: 'track', id: track.id, track, chain: track.chain, project } : null;
   }
 
   render() {
     this.renderPicker();
+    if (this.hooks.getSelected() === MASTER) return this.renderMaster();
     const track = this.hooks.getTrack();
     if (!track) {
       this.el.innerHTML = '<p class="empty">Keine Spur ausgewählt.</p>';
-      return;
+      return undefined;
     }
 
     const trackBlock = blockMarkup({
@@ -135,6 +167,7 @@ export class Rack {
         </label>
         ${TRACK_PARAMS.map((spec) => paramMarkup('track', 'track', spec, trackValue(track, spec))).join('')}`,
     });
+    const project = this.hooks.getProject();
 
     const srcDef = MODULES[track.source.type];
     const srcOptions = SOURCES.map(
@@ -169,13 +202,16 @@ export class Rack {
             <button class="icon" data-act="move" data-dir="1" title="Nach hinten">▶</button>
             <button class="icon ${block.bypass ? 'active' : ''}" data-act="bypass" title="Bypass">⏻</button>
             <button class="icon danger" data-act="remove" title="Entfernen">✕</button>`,
-          body: def.params.map((spec) => paramMarkup('fx', block.id, spec, block.params[spec.id])).join(''),
+          body: def.params
+            .map((spec) => paramMarkup('fx', block.id, spec, block.params[spec.id], project, track.id))
+            .join(''),
         });
       })
       .join('<div class="link" aria-hidden="true"></div>');
 
+    const fxCount = project.master.chain.length;
     const out = `
-      <article class="block block-out">
+      <article class="block block-out" data-act="to-master">
         <header class="block-head">
           <div class="block-title">
             <span class="block-kind">Ausgang</span>
@@ -183,7 +219,9 @@ export class Rack {
           </div>
         </header>
         <div class="meter"><i></i></div>
-        <p class="block-hint">Alle Spuren laufen hier zusammen, ein Limiter fängt Spitzen ab.</p>
+        <p class="block-hint">Alle Spuren laufen hier zusammen.
+          ${fxCount ? `${fxCount} Block${fxCount === 1 ? '' : 'e'} in der Summe – ` : ''}
+          <b>antippen</b>, um die Masterkette zu bearbeiten.</p>
       </article>`;
 
     const link = '<div class="link" aria-hidden="true"></div>';
@@ -192,9 +230,69 @@ export class Rack {
       : `${link}<p class="empty">Keine Effekte – unten hinzufügen.</p>`;
 
     this.el.innerHTML = trackBlock + link + sourceBlock + link + chain + empty + link + out;
+    this.afterRender(track.chain);
+    return undefined;
+  }
+
+  // Die Summe: dieselbe Kette, nur ohne Quelle und ohne Stimmen. Hier liegt
+  // der Filtersweep ueber den ganzen Mix – der wichtigste Griff im Aufbau.
+  renderMaster() {
+    const project = this.hooks.getProject();
+    const chain = project.master.chain;
+
+    const head = blockMarkup({
+      scope: 'master',
+      id: MASTER,
+      kind: 'Summe',
+      title: 'Master',
+      hint: 'Alles läuft hier durch, danach erst der Limiter. Was hier liegt, wirkt auf das ganze Set.',
+      body: paramMarkup('master', MASTER, MASTER_VOLUME, project.master.volume),
+    });
+
+    const blocks = chain
+      .map((block) => {
+        const def = MODULES[block.type];
+        return blockMarkup({
+          scope: 'fx',
+          id: block.id,
+          kind: 'Effekt',
+          title: def.name,
+          hint: def.hint,
+          controls: `
+            <button class="icon" data-act="move" data-dir="-1" title="Nach vorne">◀</button>
+            <button class="icon" data-act="move" data-dir="1" title="Nach hinten">▶</button>
+            <button class="icon ${block.bypass ? 'active' : ''}" data-act="bypass" title="Bypass">⏻</button>
+            <button class="icon danger" data-act="remove" title="Entfernen">✕</button>`,
+          body: def.params
+            .map((spec) => paramMarkup('fx', block.id, spec, block.params[spec.id], project, null))
+            .join(''),
+        });
+      })
+      .join('<div class="link" aria-hidden="true"></div>');
+
+    const link = '<div class="link" aria-hidden="true"></div>';
+    const empty = chain.length ? '' : `${link}<p class="empty">Keine Blöcke in der Summe – unten hinzufügen.</p>`;
+    const out = `
+      <article class="block block-out">
+        <header class="block-head">
+          <div class="block-title">
+            <span class="block-kind">Ausgang</span>
+            <h3>Limiter</h3>
+          </div>
+        </header>
+        <div class="meter"><i></i></div>
+        <p class="block-hint">Fängt Spitzen ab, damit ein Sweep nicht zerrt.</p>
+      </article>`;
+
+    this.el.innerHTML = head + link + blocks + empty + link + out;
+    this.afterRender(chain);
+    return undefined;
+  }
+
+  afterRender(chain) {
     this.meter = this.el.querySelector('.meter i');
     for (const block of this.el.querySelectorAll('.block-fx')) {
-      const def = track.chain.find((b) => b.id === block.dataset.id);
+      const def = chain.find((b) => b.id === block.dataset.id);
       block.classList.toggle('bypassed', !!def?.bypass);
     }
   }
@@ -213,7 +311,9 @@ export class Rack {
       const spec = this.specFor(scope, blockId, paramId);
       if (!spec) return undefined;
 
-      let value = spec.type === 'select' ? target.value : fromSlider(spec, Number(target.value));
+      let value = spec.type === 'select' || spec.type === 'track'
+        ? target.value
+        : fromSlider(spec, Number(target.value));
       if (spec.step === 1) value = Math.round(value);
       const label = target.parentElement.querySelector('.param-value');
       if (label) label.textContent = formatValue(spec, value);
@@ -231,22 +331,27 @@ export class Rack {
     });
 
     this.el.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-act]');
-      if (!btn) return;
-      const track = this.hooks.getTrack();
-      const id = btn.closest('.block').dataset.id;
-      const index = track.chain.findIndex((b) => b.id === id);
-      if (index < 0) return;
+      // Der Master-Block am Ende der Kette ist der Weg in die Summe.
+      if (e.target.closest('[data-act="to-master"]')) return this.hooks.onSelectTrack(MASTER);
 
-      if (btn.dataset.act === 'remove') track.chain.splice(index, 1);
-      if (btn.dataset.act === 'bypass') track.chain[index].bypass = !track.chain[index].bypass;
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return undefined;
+      const chain = this.target()?.chain;
+      if (!chain) return undefined;
+      const id = btn.closest('.block').dataset.id;
+      const index = chain.findIndex((b) => b.id === id);
+      if (index < 0) return undefined;
+
+      if (btn.dataset.act === 'remove') chain.splice(index, 1);
+      if (btn.dataset.act === 'bypass') chain[index].bypass = !chain[index].bypass;
       if (btn.dataset.act === 'move') {
         const to = index + Number(btn.dataset.dir);
-        if (to < 0 || to >= track.chain.length) return;
-        const [moved] = track.chain.splice(index, 1);
-        track.chain.splice(to, 0, moved);
+        if (to < 0 || to >= chain.length) return undefined;
+        const [moved] = chain.splice(index, 1);
+        chain.splice(to, 0, moved);
       }
       this.hooks.onStructure();
+      return undefined;
     });
 
     this.bindDrag();
@@ -279,7 +384,8 @@ export class Rack {
       this.clearDropMarks();
       if (!block || block.dataset.id === this.dragId) return;
 
-      const chain = this.hooks.getTrack().chain;
+      const chain = this.target()?.chain;
+      if (!chain) return;
       const from = chain.findIndex((b) => b.id === this.dragId);
       const [moved] = chain.splice(from, 1);
       let to = chain.findIndex((b) => b.id === block.dataset.id);
@@ -311,8 +417,12 @@ export class Rack {
 
   specFor(scope, blockId, paramId) {
     if (scope === 'track') return TRACK_PARAMS.find((p) => p.id === paramId) || null;
-    const track = this.hooks.getTrack();
-    const type = scope === 'source' ? track.source.type : track.chain.find((b) => b.id === blockId)?.type;
+    if (scope === 'master') return MASTER_VOLUME;
+    const current = this.target();
+    if (!current) return null;
+    const type = scope === 'source'
+      ? current.track?.source.type
+      : current.chain.find((b) => b.id === blockId)?.type;
     if (!type) return null;
     return MODULES[type].params.find((p) => p.id === paramId) || null;
   }

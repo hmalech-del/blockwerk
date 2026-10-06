@@ -121,6 +121,7 @@ export class Live {
       return `<div class="macro" data-slot="${slot}">
         <div class="macro-head">
           <span class="macro-label" title="${macro.path}">${macro.label}</span>
+          ${this.midiChip(slot)}
           <output class="macro-value">${formatValue(spec, value)}</output>
         </div>
         <input type="range" min="0" max="1000" step="1" value="${toSlider(spec, value)}"
@@ -128,6 +129,36 @@ export class Live {
         ${this.targetSelect(slot, macro.path)}
       </div>`;
     }).join('');
+  }
+
+  // Ein Drehregler des Controllers wird hier gelernt: antippen, drehen, fertig.
+  midiChip(slot) {
+    const midi = this.midi;
+    if (!midi?.open) return '';
+    const bound = Object.entries(midi.map || {}).find(([, s]) => s === slot)?.[0];
+    const learning = midi.learning === slot;
+    const label = learning ? 'dreh …' : bound ? `CC ${bound.split(':')[1]}` : 'MIDI';
+    return `<button class="midi-chip${learning ? ' learning' : ''}${bound ? ' bound' : ''}"
+      data-act="midi-learn" data-slot="${slot}"
+      title="Diesem Regler einen Drehregler zuordnen">${label}</button>`;
+  }
+
+  setMidi(state) {
+    this.midi = state;
+  }
+
+  // Nach einer MIDI-Bewegung nur diesen einen Regler nachziehen – alles neu zu
+  // zeichnen waere mitten im Set eine sichtbare Ruckelei.
+  refreshMacro(slot) {
+    const macro = this.project.macros?.[slot];
+    const box = this.el.querySelector(`.macro[data-slot="${slot}"]`);
+    if (!macro || !box) return;
+    const spec = { ...targetSpec(this.project, macro.target), min: macro.min, max: macro.max };
+    const value = readTarget(this.project, macro.target);
+    const slider = box.querySelector('[data-act="macro"]');
+    const out = box.querySelector('.macro-value');
+    if (slider) slider.value = toSlider(spec, value);
+    if (out) out.textContent = formatValue(spec, value);
   }
 
   targetSelect(slot, current) {
@@ -374,6 +405,11 @@ export class Live {
       const row = btn.closest('.pad-row');
       const track = row ? this.project.tracks.find((t) => t.id === row.dataset.id) : null;
 
+      if (act === 'midi-learn') {
+        this.hooks.onMidiLearn?.(Number(btn.dataset.slot));
+        return this.render();
+      }
+
       if (act === 'pad' && track) {
         transport.queueClip(track.id, Number(btn.dataset.slot));
         return this.refresh();
@@ -432,20 +468,28 @@ export class Live {
 
 // Alle stufenlos regelbaren Ziele des Projekts, nach Spur gruppiert.
 export function macroTargets(project) {
-  const groups = [{ group: 'Master', items: [{ path: 'master.volume', label: 'Lautstärke' }] }];
+  const masterItems = [{ path: 'master.volume', label: 'Lautstärke' }];
+  for (const block of project.master?.chain || []) {
+    for (const spec of MODULES[block.type].params) {
+      if (spec.type === 'select' || spec.type === 'track') continue;
+      masterItems.push({ path: `master.${block.type}.${spec.id}`, label: `${MODULES[block.type].name} · ${spec.label}` });
+    }
+  }
+  const groups = [{ group: 'Master', items: masterItems }];
   for (const track of project.tracks) {
     const items = [
       { path: `${track.name}.volume`, label: 'Pegel' },
       { path: `${track.name}.gate`, label: 'Notenlänge' },
       { path: `${track.name}.offset`, label: 'Versatz (Stufen)' },
+      { path: `${track.name}.nudge`, label: 'Versatz (ms)' },
     ];
     for (const spec of MODULES[track.source.type].params) {
-      if (spec.type === 'select') continue;
+      if (spec.type === 'select' || spec.type === 'track') continue;
       items.push({ path: `${track.name}.source.${spec.id}`, label: `Quelle · ${spec.label}` });
     }
     for (const block of track.chain) {
       for (const spec of MODULES[block.type].params) {
-        if (spec.type === 'select') continue;
+        if (spec.type === 'select' || spec.type === 'track') continue;
         items.push({ path: `${track.name}.${block.type}.${spec.id}`, label: `${MODULES[block.type].name} · ${spec.label}` });
       }
     }
@@ -457,7 +501,7 @@ export function macroTargets(project) {
 // Pfad wie „bass.filter.freq“ in ein Ziel aufloesen.
 export function pathToTarget(project, path) {
   const byName = new Map(project.tracks.map((t) => [nameKey(t.name), t]));
-  return resolveTarget(path, byName);
+  return resolveTarget(path, byName, new Set(), project);
 }
 
 function escapeHtml(text) {

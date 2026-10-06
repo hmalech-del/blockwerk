@@ -187,9 +187,18 @@ Streifen statt eines Rasters:
 
 - **Audio starten** – Browser erlauben Ton erst nach einer Berührung; die erste Geste irgendwo auf der Seite genügt.
 - **Start / Stopp** – Schaltfläche oder Leertaste.
-- **Schritte setzen** – Tippen schaltet durch *aus → an → Akzent*. Senkrechtes
-  Ziehen auf einem Schritt verschiebt die Tonhöhe in Skalenstufen; die Zahl im
-  Feld zeigt die Stufe, `0` ist der Grundton und bleibt unbeschriftet.
+- **Schritte setzen** – Tippen schaltet durch *aus → an → Akzent → Geist*.
+  **Senkrechtes** Ziehen verschiebt die Tonhöhe in Skalenstufen (die Zahl im
+  Feld zeigt die Stufe, `0` ist der Grundton und bleibt unbeschriftet),
+  **waagerechtes** Ziehen setzt einen **Roll**: 2, 3, 4 oder 6 Anschläge im
+  selben Schritt, als Punktreihe am unteren Rand.
+- **Geisternoten** sind der leise dritte Zustand. Drei Anschlagstärken statt
+  zwei sind der Unterschied zwischen einem Groove und einem Stempel – die
+  leisen Zwischenschläge lassen ein Hi-Hat-Muster atmen. Im Text: `o`.
+- **Rolls** lösen die Triolenfrage, ohne das Raster anzufassen. Ein Roll aus
+  drei Anschlägen auf einem Sechzehntel ergibt Sextolen, also die Trap-Hi-Hat;
+  vier ergeben 64tel. Der Roll fällt zum Ende hin leicht ab und kürzt seine
+  Noten, damit er nicht matscht. Im Text: `x*3`.
 - **Clips A–D** – je Spur vier Slots. Während der Wiedergabe wird ein Tipp
   *vorgemerkt* (der Chip blinkt) und erst an der eingestellten Grenze
   übernommen. Erneutes Tippen bestellt den Wechsel wieder ab.
@@ -210,8 +219,29 @@ Streifen statt eines Rasters:
   Wechsel während des Laufs transponiert das Set, lässt das Schlagzeug aber in
   Ruhe. Je Spur lassen sich im Klang-Reiter **Folgt der Tonart**, **Versatz**
   und eine **eigene Stimmung** einstellen (siehe unten).
+- **Versatz (Zeit)** – je Spur, in Millisekunden. Das ist, was Swing nicht
+  kann: die Snare 20 ms *hinter* das Raster legen, die Hats leicht davor. Der
+  Groove bleibt im Takt und fängt an zu hinken – im guten Sinn.
 - **M / S** – Stumm und Solo je Spur.
 - **Klang** – zweiter Reiter: Quelle und Effektkette der ausgewählten Spur.
+  Ganz rechts im Spurwähler steht **∑ Master**: die Summe hat dieselbe
+  Blockkette wie eine Spur. Ein Tiefpass dort, auf einen Live-Regler gelegt,
+  ist der Filtersweep über den ganzen Mix – der wichtigste Griff im Aufbau.
+- **Duck** – der Effekt für die Seitenkette. Er hört auf eine andere Spur und
+  zieht den Pegel weg, sobald die anschlägt: Bass unter Kick, Flächen unter
+  Snare. Es fließt kein Signal von der Quellspur – die Engine meldet nur den
+  Anschlag, deshalb sitzt das Pumpen exakt und kostet nichts.
+- **Eingang** – eine Quelle wie jede andere: Mikrofon oder Line-In läuft durch
+  die Effektkette dieser Spur. Delay auf der Stimme, Filter auf dem Ad-lib.
+  Kopfhörer aufsetzen, sonst pfeift es.
+- **Mitschnitt** – nimmt hinter dem Limiter ab, also genau das, was aus den
+  Boxen kam, und legt beim Stoppen eine Datei ab. Die Laufzeit steht in der
+  Reiterzeile.
+- **MIDI** – ein Controller belegt die vier Live-Regler. Antippen verbindet,
+  dann am Regler das kleine **MIDI**-Feld antippen und am Controller drehen –
+  der nächste Drehregler, der sich bewegt, gehört dazu. Noten spielen die
+  ausgewählte Spur. Die Zuordnung liegt im Set, damit Controller und Set
+  zusammen reisen.
 - **Klaviatur** – spielt die ausgewählte Spur, Tasten `A W S E D F T G Z H U J K`,
   Oktave mit `←` / `→`.
 - **Sampler** – vierter Reiter: aufnehmen, zerhacken, Slices antippen.
@@ -253,13 +283,17 @@ bar 33   end
 | `add lead crusher` | Effekt anhängen – die Regler dafür erscheinen sofort im Klang-Reiter |
 | `remove lead crusher` | Effekt wieder entfernen |
 | `bypass lead delay on` | Effekt überbrücken (`on` / `off`) |
-| `pattern kick C = x . . . x . . .` | Clip aus dem Script schreiben (1, 2 oder 4 Takte) |
+| `pattern kick C = x . o . X . . x*3` | Clip aus dem Script schreiben (1, 2 oder 4 Takte); `o` Geist, `x*3` Roll |
+| `add master filter` | Effekt auf die **Summe**; `remove` und `bypass` kennen den Master genauso |
+| `master.filter.freq 200 -> 12000 over 8 bars` | Filtersweep über den ganzen Mix |
+| `add bass duck` | Seitenkette anlegen – die Quelle wird im Klang-Reiter gewählt |
 | `control 1 lead.delay.mix as Delay` | Live-Regler belegen, Bereich optional |
 | `slice break 16` | Sample der Spur neu zerlegen; `slice break transients` sucht die Anschläge |
 | `end` | Wiedergabe anhalten |
 
-Ziele für Fahrten: `spur.volume`, `spur.gate`, `spur.offset`,
-`spur.source.<parameter>`, `spur.<effekt>.<parameter>`, `master.volume`.
+Ziele für Fahrten: `spur.volume`, `spur.gate`, `spur.offset`, `spur.nudge`
+(Versatz in ms), `spur.source.<parameter>`, `spur.<effekt>.<parameter>`,
+`master.volume`, `master.<effekt>.<parameter>`.
 Mehrere Befehle je Zeile mit Komma trennen, `#` leitet einen Kommentar ein
 (mitten im Wort nicht – `F#2` bleibt eine Note).
 
@@ -395,10 +429,11 @@ index.html
 css/style.css
 js/
   modules.js     Modul-Registry: Parameter + Audio-Aufbau je Baustein
-  engine.js      AudioContext, Kette je Spur, Stimmenverwaltung
+  engine.js      AudioContext, Kette je Spur und Summe, Stimmen,
+                 Live-Eingang, Mitschnitt, Seitenketten-Meldung
   transport.js   Taktgeber mit Lookahead-Scheduler
   project.js     Datenmodell, Skalen, Normalisierung, Presets
-  pattern.js     Clip ⇄ Text
+  pattern.js     Clip ⇄ Text, Anschlagstärken, Rolls
   sequencer.js   Raster, Clips, Spielkopf
   live.js        Streifen mit Vorschau, Szenen, Pads, Moduswechsel
   gesture.js     Gestenfeld: Pfade, Anschläge, Schleifenaufnahme
@@ -407,7 +442,8 @@ js/
   sampler.js     Sampler-Ansicht: Wellenform, Marken, Slices
   script.js      Set-Script: Parser und Ausführung
   scriptview.js  Editor mit Fehlermeldungen
-  rack.js        Klangkette der ausgewählten Spur
+  rack.js        Klangkette der ausgewählten Spur – und der Summe
+  midi.js        Web MIDI: Drehregler lernen, Noten spielen
   keyboard.js    Bildschirm- und Computertastatur
   app.js         Verdrahtung, Persistenz, Transport-Bedienung
 ```
