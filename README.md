@@ -109,15 +109,21 @@ Unterscheidung läuft über drei Frequenzbänder, ohne FFT.
 Das Runden auf Sechzehntel fängt sowohl die Eingangsverzögerung des Mikrofons
 als auch menschliches Timing ab.
 
-## Tonart: global, mit zwei Ausnahmen
+## Tonart: global, mit drei Ausnahmen
 
 Der **Grundton ist bewusst global**. Darauf beruht das ganze Modell: Schritte
 sind Skalenstufen, keine Halbtöne – deshalb transponiert ein Tonartwechsel das
 laufende Set, und deshalb klingt jede gewürfelte Melodie zum Rest. Ein eigener
 Grundton je Spur wäre kein Satz mehr, sondern zwei Stücke gleichzeitig.
 
-Zwei Abweichungen sind aber musikalisch sinnvoll und je Spur einstellbar:
+Drei Abweichungen sind aber musikalisch sinnvoll und je Spur einstellbar:
 
+- **Folgt der Tonart: nein** – ein Schlagzeug hat keine Tonart. Kick, Snare und Hi-Hat
+  sind deshalb von Haus aus *ungestimmt*: ein Tonartwechsel hebt den Kick nicht
+  mit, sondern lässt ihn, wo er ist. Ungestimmte Spuren rechnen ihre Stufen in
+  Halbtönen über einem festen Bezugston – so stimmt man Toms trotzdem sauber.
+  Die Voreinstellung folgt der Quelle: Perc und Rauschen sind ungestimmt,
+  Oszillator, FM und Sampler folgen der Tonart.
 - **Versatz** verschiebt eine Spur um Skalenstufen, nicht um Halbtöne. Eine
   Terz über dem Bass bleibt dadurch zwangsläufig in der Tonart – verschoben,
   aber nie daneben. Auch als Ziel für Live-Regler und Script (`lead.offset`).
@@ -188,9 +194,16 @@ Streifen statt eines Rasters:
   *vorgemerkt* (der Chip blinkt) und erst an der eingestellten Grenze
   übernommen. Erneutes Tippen bestellt den Wechsel wieder ab.
 - **Wechsel** – legt diese Grenze fest: ¼ Takt bis 4 Takte oder „sofort".
-- **Tonart** – Grundton und Stimmung gelten für alle Spuren; ein Wechsel während
-  des Laufs transponiert das ganze Set. Je Spur lassen sich im Klang-Reiter
-  **Versatz** und eine **eigene Stimmung** einstellen (siehe unten).
+- **Takte** – jeder Clip ist 1, 2 oder 4 Takte lang; die Auswahl steht in der
+  Ideen-Leiste unter dem Raster. Beim Verlängern wird das vorhandene Muster in
+  die neuen Takte **kopiert** – man hat sofort etwas zum Abwandeln statt einer
+  leeren Zeile – und die Ansicht springt in den neuen Takt. Die Taktreiter
+  **Takt 1 2 …** oben links schalten zwischen den Takten um; **Folgen** lässt
+  die Ansicht dem Spielkopf nachlaufen.
+- **Tonart** – Grundton und Stimmung gelten für alle *gestimmten* Spuren; ein
+  Wechsel während des Laufs transponiert das Set, lässt das Schlagzeug aber in
+  Ruhe. Je Spur lassen sich im Klang-Reiter **Folgt der Tonart**, **Versatz**
+  und eine **eigene Stimmung** einstellen (siehe unten).
 - **M / S** – Stumm und Solo je Spur.
 - **Klang** – zweiter Reiter: Quelle und Effektkette der ausgewählten Spur.
 - **Klaviatur** – spielt die ausgewählte Spur, Tasten `A W S E D F T G Z H U J K`,
@@ -239,10 +252,20 @@ bar 33   end
 | `slice break 16` | Sample der Spur neu zerlegen; `slice break transients` sucht die Anschläge |
 | `end` | Wiedergabe anhalten |
 
-Ziele für Fahrten: `spur.volume`, `spur.gate`, `spur.source.<parameter>`,
-`spur.<effekt>.<parameter>`, `master.volume`. Mehrere Befehle je Zeile mit
-Komma trennen, `#` leitet einen Kommentar ein (mitten im Wort nicht – `F#2`
-bleibt eine Note).
+Ziele für Fahrten: `spur.volume`, `spur.gate`, `spur.offset`,
+`spur.source.<parameter>`, `spur.<effekt>.<parameter>`, `master.volume`.
+Mehrere Befehle je Zeile mit Komma trennen, `#` leitet einen Kommentar ein
+(mitten im Wort nicht – `F#2` bleibt eine Note).
+
+**Namen dürfen Leerzeichen haben.** Neue Spuren heißen „Spur 1", „Spur 2" – und
+genau so lassen sie sich ansprechen: `mute Spur 1`, `Spur 1 = B`,
+`Spur 1.volume 0.2 -> 0.9 over 4 bars`, `pattern Spur 1 A = x . . .`,
+`add Spur 1 crusher`. Beim Lesen wird von lang nach kurz probiert, deshalb
+findet `mute Spur 1 Kick` zwei Spuren und `add Spur 1 crusher` den Effekt.
+Groß- und Kleinschreibung und Leerzeichen zählen nicht mit, `spur1` ist
+dieselbe Spur. Über dem Editor steht außerdem eine Leiste mit allen Spur- und
+Szenennamen des Sets – ein Tipp setzt den Namen an der Schreibmarke ein, damit
+man ihn nicht abtippen muss.
 
 **Der Plan gibt nicht den Ton an, er erinnert nur.** Das Script wirkt allein in
 dem Moment, in dem eines seiner Ereignisse fällig ist. Wer zwischendurch von

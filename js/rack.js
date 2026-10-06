@@ -39,11 +39,22 @@ const TRACK_PARAMS = [
   { id: 'offset', label: 'Versatz', min: -7, max: 7, def: 0, step: 1 },
   { id: 'gate', label: 'Notenlänge', min: 0.05, max: 4, def: 0.9, scale: 'log' },
   {
+    id: 'tuned', label: 'Folgt der Tonart', type: 'select', def: 'ja',
+    options: [{ value: 'ja', label: 'ja' }, { value: 'nein', label: 'nein (Schlagzeug)' }],
+  },
+  {
     id: 'scale', label: 'Stimmung', type: 'select', def: '',
     options: [{ value: '', label: 'wie das Set' }]
       .concat(MOODS.map((m) => ({ value: m.scale, label: `${m.label} (${SCALES[m.scale].label})` }))),
   },
 ];
+
+// Zwei Felder brauchen eine Uebersetzung zwischen Modell und Auswahlfeld.
+function trackValue(track, spec) {
+  if (spec.id === 'volume') return track.mix.volume;
+  if (spec.id === 'tuned') return track.tuned === false ? 'nein' : 'ja';
+  return track[spec.id] ?? spec.def;
+}
 
 function paramMarkup(scope, blockId, spec, value) {
   const key = `${scope}:${blockId}:${spec.id}`;
@@ -122,8 +133,7 @@ export class Rack {
           <span class="param-label">Name</span>
           <input type="text" data-act="track-name" value="${track.name.replace(/"/g, '&quot;')}">
         </label>
-        ${TRACK_PARAMS.map((spec) => paramMarkup('track', 'track', spec,
-          spec.id === 'volume' ? track.mix.volume : (track[spec.id] ?? spec.def))).join('')}`,
+        ${TRACK_PARAMS.map((spec) => paramMarkup('track', 'track', spec, trackValue(track, spec))).join('')}`,
     });
 
     const srcDef = MODULES[track.source.type];

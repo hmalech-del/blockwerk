@@ -75,10 +75,22 @@ export class Sequencer {
     if (!track) return '';
     const sampler = track.source.type === 'sampler';
     const density = this.density ?? 0.45;
+    const clip = track.clips[track.clip];
+
+    // Die Cliplänge gehört hierher, nicht in den Textmodus: zwei Takte sind
+    // eine musikalische Entscheidung, keine Dateiformat-Frage.
+    const bars = clip ? `
+      <label class="ctrl small">
+        <span>Takte</span>
+        <select data-act="bars">
+          ${[1, 2, 4].map((b) => `<option value="${b}"${b === clip.bars ? ' selected' : ''}>${b}</option>`).join('')}
+        </select>
+      </label>` : '';
 
     return `
       <div class="idea-bar">
-        <span class="idea-label">${escapeHtml(track.name)}</span>
+        <span class="idea-label">${escapeHtml(track.name)} · ${CLIP_SLOTS[track.clip]}</span>
+        ${bars}
         <button data-act="idea-roll">🎲 ${sampler ? 'Slices würfeln' : 'Melodie würfeln'}</button>
         <button data-act="idea-vary">✦ Variieren</button>
         <label class="ctrl small">
@@ -157,7 +169,7 @@ export class Sequencer {
     const bars = Math.max(...this.project.tracks.map((t) => t.clips[t.clip]?.bars || 1), 1);
     holder.innerHTML = bars <= 1
       ? ''
-      : Array.from({ length: bars }, (_, i) =>
+      : '<span class="bar-tabs-label">Takt</span>' + Array.from({ length: bars }, (_, i) =>
           `<button class="bar-tab${i === this.viewBar ? ' on' : ''}" data-act="bar" data-bar="${i}">${i + 1}</button>`
         ).join('');
   }
@@ -225,8 +237,18 @@ export class Sequencer {
         return undefined;
       }
       if (e.target.dataset.act !== 'bars') return;
-      this.hooks.onClipBars(this.selectedTrack(), Number(e.target.value));
-      this.viewBar = 0;
+      const track = this.selectedTrack();
+      const before = track?.clips[track.clip]?.bars || 1;
+      const bars = Number(e.target.value);
+      this.hooks.onClipBars(track, bars);
+      // Beim Verlängern gleich in den neuen Takt springen – sonst sucht man
+      // ihn. Dafür hört das Mitlaufen auf, bis man es wieder einschaltet.
+      if (bars > before) {
+        this.viewBar = before;
+        this.follow = false;
+      } else {
+        this.viewBar = 0;
+      }
       this.render();
     });
 
@@ -352,13 +374,7 @@ export class Sequencer {
 
     holder.innerHTML = `
       <div class="clip-text-head">
-        <strong>${track.name} · Clip ${CLIP_SLOTS[track.clip]}</strong>
-        <label class="ctrl small">
-          <span>Takte</span>
-          <select data-act="bars">
-            ${[1, 2, 4].map((b) => `<option value="${b}"${b === clip.bars ? ' selected' : ''}>${b}</option>`).join('')}
-          </select>
-        </label>
+        <strong>${track.name} · Clip ${CLIP_SLOTS[track.clip]} · ${clip.bars} ${clip.bars === 1 ? 'Takt' : 'Takte'}</strong>
         <button class="ghost small" data-act="clear-clip">Leeren</button>
         <button class="ghost small" data-act="dup-clip">In freien Slot kopieren</button>
       </div>

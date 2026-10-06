@@ -16,9 +16,9 @@ import {
 } from './ideas.js';
 import { SampleStore, Recorder, equalSlices, detectTransients } from './samples.js';
 import { Keyboard } from './keyboard.js';
-import { parseSteps, stepsToText } from './pattern.js';
+import { parseSteps, stepsToText, STEPS_PER_BAR } from './pattern.js';
 import {
-  CLIP_SLOTS, SCALES, TRACK_COLORS, applyPreset, demoProject, trackMidi,
+  CLIP_SLOTS, SCALES, TRACK_COLORS, applyPreset, demoProject, followsKeyByDefault, trackMidi,
   makeClip, makeProject, makeSample, makeScene, makeTrack, normalizeProject, SOUND_PRESETS,
 } from './project.js';
 import { defaultParams } from './modules.js';
@@ -122,6 +122,8 @@ const rack = new Rack($('#rack'), {
         engine.applyMix();
       } else if (paramId === 'scale') {
         track.scale = value || null;        // leer heisst: wie das Set
+      } else if (paramId === 'tuned') {
+        track.tuned = value !== 'nein';
       } else {
         track[paramId] = value;
       }
@@ -138,6 +140,8 @@ const rack = new Rack($('#rack'), {
   onSourceType: (type) => {
     const track = selectedTrack();
     track.source = { type, params: defaultParams(type) };
+    // Wer eine Spur zum Schlagzeug macht, will sie fast nie transponiert haben.
+    track.tuned = followsKeyByDefault(type);
     engine.killTrack(track.id);
     rack.render();
     save();
@@ -228,11 +232,13 @@ const sequencer = new Sequencer($('#sequencer'), {
     save();
   },
   onClipBars: (track, bars) => {
-    const clip = track.clips[track.clip];
-    if (!clip) return;
+    const clip = track?.clips[track.clip];
+    if (!clip || bars === clip.bars) return;
     const old = clip.steps;
+    // Beim Verlängern wiederholt sich das Vorhandene: im neuen Takt steht dann
+    // etwas zum Abwandeln statt einer leeren Zeile. Beim Kürzen bleibt vorn.
+    clip.steps = Array.from({ length: bars * STEPS_PER_BAR }, (_, i) => ({ ...old[i % old.length] }));
     clip.bars = bars;
-    clip.steps = parseSteps(stepsToText(old), bars); // vorhandene Takte bleiben erhalten
     save();
   },
   onClipCopy: (track) => {

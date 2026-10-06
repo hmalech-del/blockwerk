@@ -39,8 +39,13 @@ export function degToMidi(deg, root, scaleName) {
 // Spur. Einen eigenen Grundton je Spur gibt es bewusst nicht – das waere
 // kein Satz mehr, sondern zwei Stuecke gleichzeitig.
 export function trackMidi(project, track, deg) {
-  const scale = track.scale || project.scale;
   const step = Math.round(deg + (track.offset || 0));
+  // Spuren, die der Tonart nicht folgen, haengen an einem festen Bezugston;
+  // ihre Stufen zaehlen dann Halbtoene, damit man Toms sauber stimmen kann.
+  if (track.tuned === false) {
+    return degToMidi(step, UNTUNED_ROOT, 'chromatic') + (track.octave || 0) * 12;
+  }
+  const scale = track.scale || project.scale;
   return degToMidi(step, project.root, scale) + (track.octave || 0) * 12;
 }
 
@@ -50,6 +55,13 @@ export function makeClip({ bars = 1, text = null } = {}) {
     bars,
     steps: text ? parseSteps(text, bars) : emptySteps(bars),
   };
+}
+
+// Schlagzeugstimmen folgen der Tonart nicht: eine Kick, die beim
+// Tonartwechsel mit hochrutscht, ist kein Feature, sondern ein Fehler.
+export const UNTUNED_ROOT = 48;
+export function followsKeyByDefault(sourceType) {
+  return !['perc', 'noise'].includes(sourceType);
 }
 
 export function makeTrack(partial = {}) {
@@ -72,6 +84,7 @@ export function makeTrack(partial = {}) {
     // Spur zwangslaeufig in der Tonart.
     offset: partial.offset ?? 0,
     scale: partial.scale || null,          // null = die Stimmung des Sets
+    tuned: partial.tuned ?? followsKeyByDefault(type),
     gate: partial.gate ?? 0.9,
     clips: CLIP_SLOTS.map((_, i) => {
       const text = partial.clips?.[i];
@@ -257,6 +270,7 @@ function normalizeTrack(raw, index) {
   track.octave = Number.isInteger(raw?.octave) ? Math.max(-3, Math.min(3, raw.octave)) : 0;
   track.offset = Number.isFinite(raw?.offset) ? Math.max(-14, Math.min(14, Math.round(raw.offset))) : 0;
   track.scale = SCALES[raw?.scale] ? raw.scale : null;
+  track.tuned = typeof raw?.tuned === 'boolean' ? raw.tuned : followsKeyByDefault(type);
   track.gate = typeof raw?.gate === 'number' ? Math.max(0.05, Math.min(4, raw.gate)) : 0.9;
   track.clips = CLIP_SLOTS.map((_, i) => normalizeClip(raw?.clips?.[i]));
   if (!track.clips.some(Boolean)) track.clips[0] = makeClip({});

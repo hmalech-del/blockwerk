@@ -8,7 +8,7 @@
 import { CLIP_SLOTS, STEPS_PER_BAR } from './project.js';
 import { MODULES } from './modules.js';
 import { toSlider, fromSlider, formatValue } from './rack.js';
-import { resolveTarget, targetSpec, readTarget } from './script.js';
+import { resolveTarget, targetSpec, readTarget, nameKey } from './script.js';
 
 const VISIBLE_STEPS = 32;      // zwei Takte im Bild
 const PLAYHEAD_AT = 0.34;      // Spielkopf bei 34 % der Breite
@@ -456,7 +456,7 @@ export function macroTargets(project) {
 
 // Pfad wie „bass.filter.freq“ in ein Ziel aufloesen.
 export function pathToTarget(project, path) {
-  const byName = new Map(project.tracks.map((t) => [t.name.trim().toLowerCase(), t]));
+  const byName = new Map(project.tracks.map((t) => [nameKey(t.name), t]));
   return resolveTarget(path, byName);
 }
 

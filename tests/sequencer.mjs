@@ -74,18 +74,22 @@ const keys = await page.evaluate(async () => {
   lead.scale = null;
   const mollSchritte = scaleOf(lead, [0, 1, 2]).map((m, i, a) => m - a[0]);
 
-  // Der Grundton bleibt global: ein Wechsel bewegt alle Spuren gleich
+  // Ein Wechsel der Tonart bewegt die melodischen Spuren – und nur die.
+  // Kick, Snare und HiHat haengen an einem festen Bezugston.
   const vorWechsel = p.tracks.map((t) => trackMidi(p, t, 0));
   p.root += 5;
   const nachWechsel = p.tracks.map((t) => trackMidi(p, t, 0));
   p.root -= 5;
+  const verschiebung = nachWechsel.map((m, i) => m - vorWechsel[i]);
 
   return {
     versatz: versetzt[0] - vorher[0],
     inTonart,
     pentaSchritte,
     mollSchritte,
-    alleGleichVerschoben: nachWechsel.every((m, i) => m - vorWechsel[i] === 5),
+    verschiebung,
+    gestimmt: p.tracks.map((t) => t.tuned !== false),
+    folgtNurWerGestimmtIst: p.tracks.every((t, i) => verschiebung[i] === (t.tuned === false ? 0 : 5)),
   };
 });
 check('Versatz verschiebt in Skalenstufen', keys.versatz === 3, `${keys.versatz} Halbtöne für 2 Stufen`);
@@ -93,7 +97,10 @@ check('Verschobene Spur bleibt in der Tonart', keys.inTonart);
 check('Eigene Stimmung je Spur wirkt',
   keys.pentaSchritte.join(',') === '0,3,5' && keys.mollSchritte.join(',') === '0,2,3',
   `Pentatonik ${keys.pentaSchritte.join(',')} vs. Moll ${keys.mollSchritte.join(',')}`);
-check('Der Grundton bleibt global', keys.alleGleichVerschoben);
+check('Nur gestimmte Spuren folgen der Tonart', keys.folgtNurWerGestimmtIst,
+  `Verschiebung ${keys.verschiebung.join(',')} bei gestimmt ${keys.gestimmt.join(',')}`);
+check('Das Schlagzeug ist von Haus aus ungestimmt', keys.gestimmt.slice(0, 3).every((v) => v === false),
+  keys.gestimmt.join(','));
 
 // ------------------------------------------------------------ Timing
 
@@ -179,6 +186,66 @@ const voices = await page.evaluate(async () => {
 });
 check('Stimmen werden nach dem Stopp freigegeben', voices.after === 0,
   `während des Laufs ${voices.during}, danach ${voices.after}`);
+
+// ------------------------------------------------- Cliplänge im Sequenzer
+
+await page.click('[data-view="seq"]');
+await page.waitForTimeout(80);
+
+const barsUi = await page.evaluate(() => {
+  const sel = document.querySelector('.idea-bar select[data-act="bars"]');
+  const track = window.blockwerk.sequencer.selectedTrack();
+  const clip = track.clips[track.clip];
+  return {
+    sichtbar: !!(sel && sel.offsetParent !== null),
+    werte: sel ? [...sel.options].map((o) => o.value).join(',') : '',
+    takteVorher: clip.bars,
+    musterVorher: clip.steps.map((s) => `${s.on}${s.deg}`).join(''),
+  };
+});
+check('Die Cliplänge steht in der Ideen-Leiste', barsUi.sichtbar && barsUi.werte === '1,2,4',
+  `sichtbar ${barsUi.sichtbar}, Werte ${barsUi.werte}`);
+
+await page.selectOption('.idea-bar select[data-act="bars"]', '2');
+await page.waitForTimeout(80);
+
+const verlaengert = await page.evaluate(() => {
+  const track = window.blockwerk.sequencer.selectedTrack();
+  const clip = track.clips[track.clip];
+  const halb = clip.steps.length / 2;
+  const muster = (from) => clip.steps.slice(from, from + halb).map((s) => `${s.on}${s.deg}`).join('');
+  return {
+    takte: clip.bars,
+    schritte: clip.steps.length,
+    kopiert: muster(0) === muster(halb),
+    erstesMusterGleich: muster(0),
+    tabs: [...document.querySelectorAll('.bar-tab')].map((b) => b.textContent.trim()).join(','),
+    sichtbarerTakt: window.blockwerk.sequencer.viewBar,
+  };
+});
+check('Zwei Takte sind einstellbar', verlaengert.takte === 2 && verlaengert.schritte === 32,
+  `${verlaengert.takte} Takte, ${verlaengert.schritte} Schritte`);
+check('Der neue Takt übernimmt das Muster', verlaengert.kopiert);
+check('Das vorhandene Muster bleibt unberührt',
+  verlaengert.erstesMusterGleich === barsUi.musterVorher);
+check('Taktreiter erscheinen und zeigen den neuen Takt',
+  verlaengert.tabs === '1,2' && verlaengert.sichtbarerTakt === 1,
+  `Reiter ${verlaengert.tabs}, sichtbar ${verlaengert.sichtbarerTakt + 1}`);
+
+await page.selectOption('.idea-bar select[data-act="bars"]', '1');
+await page.waitForTimeout(80);
+const gekuerzt = await page.evaluate(() => {
+  const track = window.blockwerk.sequencer.selectedTrack();
+  const clip = track.clips[track.clip];
+  return {
+    takte: clip.bars,
+    muster: clip.steps.map((s) => `${s.on}${s.deg}`).join(''),
+    tabs: document.querySelectorAll('.bar-tab').length,
+  };
+});
+check('Kürzen behält den ersten Takt',
+  gekuerzt.takte === 1 && gekuerzt.muster === barsUi.musterVorher && gekuerzt.tabs === 0,
+  `${gekuerzt.takte} Takte, ${gekuerzt.tabs} Reiter`);
 
 await browser.close();
 await server.close();

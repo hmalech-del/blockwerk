@@ -33,6 +33,20 @@ export class ScriptView {
     return this.hooks.getProject();
   }
 
+  // Die Namen des Sets zum Antippen: Tippfehler sind der häufigste Grund,
+  // warum ein Script nicht läuft – also muss man sie nicht tippen.
+  namesMarkup() {
+    const chip = (kind, name) =>
+      `<button class="name-chip" data-act="insert" data-kind="${kind}" data-name="${escapeAttr(name)}">${escapeHtml(name)}</button>`;
+    const tracks = this.project.tracks.map((t) => chip('track', t.name)).join('');
+    const scenes = (this.project.scenes || []).map((s) => chip('scene', s.name)).join('');
+    return `
+      <div class="script-names" data-role="names">
+        <span class="name-label">Spuren</span>${tracks}
+        ${scenes ? `<span class="name-label">Szenen</span>${scenes}` : ''}
+      </div>`;
+  }
+
   render() {
     const script = this.project.script || { text: '', enabled: false };
     this.el.innerHTML = `
@@ -45,6 +59,8 @@ export class ScriptView {
         <button class="ghost" data-act="example">Beispiel einsetzen</button>
         <output class="script-status" data-role="status"></output>
       </div>
+
+      ${this.namesMarkup()}
 
       <textarea class="script-text" spellcheck="false" data-role="text"
         placeholder="bar 1&#10;  kick=A"></textarea>
@@ -71,9 +87,13 @@ export class ScriptView {
           <tr><td><code>end</code></td><td>Wiedergabe anhalten</td></tr>
         </table>
         <p>Ziele für Fahrten: <code>spur.volume</code>, <code>spur.gate</code>,
-           <code>spur.source.&lt;parameter&gt;</code>, <code>spur.&lt;effekt&gt;.&lt;parameter&gt;</code>,
+           <code>spur.offset</code>, <code>spur.source.&lt;parameter&gt;</code>,
+           <code>spur.&lt;effekt&gt;.&lt;parameter&gt;</code>,
            <code>master.volume</code>. Mehrere Befehle je Zeile mit Komma trennen,
            <code>#</code> leitet einen Kommentar ein.</p>
+        <p>Namen dürfen Leerzeichen haben: <code>mute Spur 1</code> und
+           <code>Spur 1.volume 0.2 -&gt; 0.9</code> gehen genauso wie
+           <code>spur1</code>. Groß- und Kleinschreibung zählt nicht.</p>
       </details>`;
 
     this.text = this.el.querySelector('[data-role="text"]');
@@ -105,6 +125,21 @@ export class ScriptView {
     errorBox.hidden = !errors.length;
   }
 
+  // An der Schreibmarke einsetzen, nicht hinten anhängen – sonst müsste man
+  // den Namen wieder von Hand an die richtige Stelle schieben.
+  insert(word) {
+    const at = this.text.selectionStart ?? this.text.value.length;
+    const to = this.text.selectionEnd ?? at;
+    const before = this.text.value.slice(0, at);
+    const space = before && !/[\s=.,]$/.test(before) ? ' ' : '';
+    this.text.value = before + space + word + this.text.value.slice(to);
+    const caret = at + space.length + word.length;
+    this.text.focus();
+    this.text.setSelectionRange(caret, caret);
+    this.hooks.onDraft(this.text.value);
+    this.refresh();
+  }
+
   bind() {
     this.el.addEventListener('click', (e) => {
       const btn = e.target.closest('button[data-act]');
@@ -113,6 +148,11 @@ export class ScriptView {
       if (btn.dataset.act === 'example') {
         this.text.value = EXAMPLE;
         this.hooks.onApply(EXAMPLE);
+      }
+      if (btn.dataset.act === 'insert') {
+        const word = btn.dataset.kind === 'scene' ? `scene ${btn.dataset.name}` : btn.dataset.name;
+        this.insert(word);
+        return;
       }
       this.refresh();
     });
@@ -138,5 +178,11 @@ export class ScriptView {
     });
   }
 }
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+const escapeAttr = escapeHtml;
 
 export { EXAMPLE };

@@ -799,6 +799,23 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
 .script-status.good { color: var(--accent); }
 .script-status.bad { color: var(--danger); }
 
+/* Die Namen des Sets zum Antippen – Tippfehler sind der häufigste Scriptfehler. */
+.script-names {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  margin: 10px 0 2px;
+}
+.name-label {
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); margin-right: 2px;
+}
+.name-label + .name-chip { margin-left: 0; }
+.name-chip {
+  padding: 3px 10px; font-size: 12px;
+  background: var(--panel); color: var(--text);
+  font-family: ui-monospace, Menlo, monospace;
+}
+.name-chip:hover { color: var(--accent); border-color: var(--accent); }
+
 .script-text {
   width: 100%;
   min-height: 300px;
@@ -861,7 +878,11 @@ button[disabled] { opacity: .4; cursor: not-allowed; }
 .beat-ruler span { text-align: center; }
 .beat-ruler .beat { color: var(--text); }
 
-.bar-tabs { display: flex; gap: 4px; }
+.bar-tabs { display: flex; gap: 4px; align-items: center; }
+.bar-tabs-label {
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); margin-right: 2px;
+}
 .bar-tab { padding: 4px 9px; font-size: 12px; background: var(--panel); color: var(--muted); }
 .bar-tab.on { color: var(--accent); border-color: var(--accent); }
 

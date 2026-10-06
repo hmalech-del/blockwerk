@@ -34,8 +34,17 @@ const NOTE_CLASSES = {
   gb: 6, g: 7, 'g#': 8, ab: 8, a: 9, 'a#': 10, bb: 10, b: 11, h: 11,
 };
 
-const RAMP = /^([\w.]+)\s+(-?[\d.]+)\s*(?:->|→)\s*(-?[\d.]+)(?:\s+over\s+([\d.]+)\s*bars?)?$/i;
+// Spur- und Szenennamen duerfen Leerzeichen haben – neue Spuren heissen
+// „Spur 1“. Deshalb stehen in den Mustern keine \S+-Platzhalter, sondern
+// sparsame (.+?)-Gruppen, die erst bis zum naechsten festen Teil wachsen.
+const RAMP = /^(.+?)\s+(-?[\d.]+)\s*(?:->|→)\s*(-?[\d.]+)(?:\s+over\s+([\d.]+)\s*bars?)?$/i;
 const ASSIGN = /^([^=]+?)\s*=\s*([a-dA-D])$/;
+const PATTERN = /^pattern\s+(.+?)\s+([a-dA-D])\s*=\s*(.+)$/i;
+const CONTROL = /^control\s+([1-8])\s+(.+?)(?:\s+(-?[\d.]+)\s+(-?[\d.]+))?(?:\s+as\s+(.+))?$/i;
+
+// Namen vergleichen sich tolerant: Gross-/Kleinschreibung und Leerzeichen
+// zaehlen nicht mit. „spur1“, „Spur 1“ und „SPUR  1“ sind dieselbe Spur.
+export const nameKey = (text) => String(text ?? '').toLowerCase().replace(/\s+/g, '');
 
 // ------------------------------------------------------------------- Lesen
 
@@ -44,20 +53,41 @@ export function parseScript(text, project) {
   const errors = [];
   const lines = String(text ?? '').split('\n');
 
-  const trackByName = new Map(project.tracks.map((t) => [t.name.trim().toLowerCase(), t]));
-  const sceneByName = new Map(project.scenes.map((s) => [s.name.trim().toLowerCase(), s]));
+  const trackByName = new Map(project.tracks.map((t) => [nameKey(t.name), t]));
+  const sceneByName = new Map(project.scenes.map((s) => [nameKey(s.name), s]));
+  const findTrack = (name) => trackByName.get(nameKey(name)) || null;
   const trackList = () => project.tracks.map((t) => t.name).join(', ') || '—';
+
+  // Aus einer Wortliste so viele Woerter wie moeglich als Spurname lesen –
+  // von lang nach kurz, damit „mute Spur 1 Spur 2“ zwei Spuren findet und
+  // „add Spur 1 crusher“ den Effekt nicht zum Namen zaehlt.
+  // „tail“ sagt, wie viele Woerter am Ende sicher nicht zum Namen gehoeren –
+  // nur fuer die Fehlermeldung, damit die den Namen nennt und nicht den Effekt.
+  function takeTrack(words, from, tail = 0) {
+    for (let end = words.length; end > from; end--) {
+      const name = words.slice(from, end).join(' ');
+      const track = findTrack(name);
+      if (track) return { track, next: end, name };
+    }
+    const stop = Math.max(from + 1, words.length - tail);
+    return { track: null, next: from + 1, name: words.slice(from, stop).join(' ') };
+  }
+
+  const unknownTrack = (name) => `Unbekannte Spur „${name}“ – vorhanden: ${trackList()}.`;
 
   // Vorlauf: Effekte, die das Script selbst anlegt, gelten beim Pruefen als
   // vorhanden – sonst koennte man einen frisch hinzugefuegten Effekt nicht
   // im selben Script regeln.
   const willExist = new Set();
   for (const raw of lines) {
-    const match = /(?:^|[\s,])add\s+(\S+)\s+(\S+)/i.exec(raw.replace(/(^|\s)(#|;|\/\/).*$/, ''));
-    if (!match) continue;
-    const track = trackByName.get(match[1].toLowerCase());
-    const type = match[2].toLowerCase();
-    if (track && MODULES[type]?.kind === 'fx') willExist.add(`${track.id}|${type}`);
+    const clean = raw.replace(/(^|\s)(#|;|\/\/).*$/, '').replace(/^\s*bar\s+\d+\s*/i, '');
+    for (const part of clean.split(',')) {
+      const words = part.trim().split(/\s+/).filter(Boolean);
+      if (words[0]?.toLowerCase() !== 'add') continue;
+      const { track, next } = takeTrack(words, 1);
+      const type = String(words[next] ?? '').toLowerCase();
+      if (track && MODULES[type]?.kind === 'fx') willExist.add(`${track.id}|${type}`);
+    }
   }
 
   let currentBar = 1;
@@ -117,19 +147,20 @@ export function parseScript(text, project) {
 
     if (head === 'scene') {
       const name = words.slice(1).join(' ').trim();
-      const scene = sceneByName.get(name.toLowerCase());
+      const scene = sceneByName.get(nameKey(name));
       if (!scene) return fail(lineNo, `Unbekannte Szene „${name}“ – vorhanden: ${[...sceneByName.values()].map((s) => s.name).join(', ') || '—'}.`);
       return events.push({ bar, line: lineNo, type: 'scene', sceneId: scene.id, text: command });
     }
 
     if (head === 'mute' || head === 'unmute') {
-      const names = words.slice(1).filter(Boolean);
-      if (!names.length) return fail(lineNo, `„${head}“ braucht mindestens eine Spur.`);
+      if (words.length < 2) return fail(lineNo, `„${head}“ braucht mindestens eine Spur.`);
       const ids = [];
-      for (const name of names) {
-        const track = trackByName.get(name.toLowerCase());
-        if (!track) return fail(lineNo, `Unbekannte Spur „${name}“ – vorhanden: ${trackList()}.`);
+      let at = 1;
+      while (at < words.length) {
+        const { track, next, name } = takeTrack(words, at);
+        if (!track) return fail(lineNo, unknownTrack(name));
         ids.push(track.id);
+        at = next;
       }
       return events.push({ bar, line: lineNo, type: 'mute', value: head === 'mute', trackIds: ids, text: command });
     }
@@ -137,33 +168,34 @@ export function parseScript(text, project) {
     // Effekte zur Laufzeit an- und abbauen. Die Regler dafuer erscheinen
     // automatisch im Klang-Reiter, weil der die Kette aus dem Modell zeichnet.
     if (head === 'add' || head === 'remove') {
-      const track = trackByName.get(String(words[1] ?? '').toLowerCase());
-      if (!track) return fail(lineNo, `Unbekannte Spur „${words[1] ?? ''}“ – vorhanden: ${trackList()}.`);
-      const type = String(words[2] ?? '').toLowerCase();
+      const { track, next, name } = takeTrack(words, 1, 1);
+      if (!track) return fail(lineNo, unknownTrack(name));
+      const type = String(words[next] ?? '').toLowerCase();
       if (!MODULES[type] || MODULES[type].kind !== 'fx') {
-        return fail(lineNo, `Unbekannter Effekt „${words[2] ?? ''}“ – möglich: ${EFFECTS.map((m) => m.id).join(', ')}.`);
+        return fail(lineNo, `Unbekannter Effekt „${words[next] ?? ''}“ – möglich: ${EFFECTS.map((m) => m.id).join(', ')}.`);
       }
       return events.push({ bar, line: lineNo, type: head === 'add' ? 'addFx' : 'removeFx', trackId: track.id, fx: type, text: command });
     }
 
     if (head === 'bypass') {
-      const track = trackByName.get(String(words[1] ?? '').toLowerCase());
-      if (!track) return fail(lineNo, `Unbekannte Spur „${words[1] ?? ''}“ – vorhanden: ${trackList()}.`);
-      const type = String(words[2] ?? '').toLowerCase();
+      const tail = ['on', 'off'].includes(String(words[words.length - 1]).toLowerCase()) ? 2 : 1;
+      const { track, next, name } = takeTrack(words, 1, tail);
+      if (!track) return fail(lineNo, unknownTrack(name));
+      const type = String(words[next] ?? '').toLowerCase();
       if (!MODULES[type] || MODULES[type].kind !== 'fx') {
-        return fail(lineNo, `Unbekannter Effekt „${words[2] ?? ''}“ – möglich: ${EFFECTS.map((m) => m.id).join(', ')}.`);
+        return fail(lineNo, `Unbekannter Effekt „${words[next] ?? ''}“ – möglich: ${EFFECTS.map((m) => m.id).join(', ')}.`);
       }
-      const state = String(words[3] ?? 'on').toLowerCase();
+      const state = String(words[next + 1] ?? 'on').toLowerCase();
       if (!['on', 'off'].includes(state)) return fail(lineNo, `„bypass“ endet auf on oder off.`);
       return events.push({ bar, line: lineNo, type: 'bypassFx', trackId: track.id, fx: type, value: state === 'on', text: command });
     }
 
     // Muster direkt aus dem Script: pattern kick A = x . . . x . . .
     if (head === 'pattern') {
-      const match = /^pattern\s+(\S+)\s+([a-dA-D])\s*=\s*(.+)$/i.exec(command);
+      const match = PATTERN.exec(command);
       if (!match) return fail(lineNo, `Erwartet: pattern <spur> <slot> = x . . . …`);
-      const track = trackByName.get(match[1].toLowerCase());
-      if (!track) return fail(lineNo, `Unbekannte Spur „${match[1]}“ – vorhanden: ${trackList()}.`);
+      const track = findTrack(match[1]);
+      if (!track) return fail(lineNo, unknownTrack(match[1].trim()));
       const slot = CLIP_SLOTS.indexOf(match[2].toUpperCase());
       const tokens = match[3].trim().split(/[\s|]+/).filter(Boolean).length;
       const bars = tokens > 32 ? 4 : tokens > 16 ? 2 : 1;
@@ -176,25 +208,26 @@ export function parseScript(text, project) {
 
     // Live-Regler belegen: control 1 bass.filter.freq [300 4000] [as Name]
     if (head === 'control') {
-      const match = /^control\s+([1-8])\s+(\S+)(?:\s+(-?[\d.]+)\s+(-?[\d.]+))?(?:\s+as\s+(.+))?$/i.exec(command);
+      const match = CONTROL.exec(command);
       if (!match) return fail(lineNo, `Erwartet: control <1-8> <ziel> [min max] [as Name]`);
-      const target = resolveTarget(match[2], trackByName, willExist);
+      const path = match[2].trim();
+      const target = resolveTarget(path, trackByName, willExist);
       if (target.error) return fail(lineNo, target.error);
       return events.push({
         bar, line: lineNo, type: 'control', slot: Number(match[1]) - 1,
-        path: match[2], target: target.value,
+        path, target: target.value,
         min: match[3] === undefined ? null : Number(match[3]),
         max: match[4] === undefined ? null : Number(match[4]),
-        label: match[5]?.trim() || match[2],
+        label: match[5]?.trim() || path,
         text: command,
       });
     }
 
     // Live-Slicing: dieselbe Zerlegung wie im Sampler-Reiter, nur im Ablauf.
     if (head === 'slice') {
-      const track = trackByName.get(String(words[1] ?? '').toLowerCase());
-      if (!track) return fail(lineNo, `Unbekannte Spur „${words[1] ?? ''}“ – vorhanden: ${trackList()}.`);
-      const what = String(words[2] ?? '').toLowerCase();
+      const { track, next, name } = takeTrack(words, 1, 1);
+      if (!track) return fail(lineNo, unknownTrack(name));
+      const what = String(words[next] ?? '').toLowerCase();
       if (what === 'transients') {
         return events.push({ bar, line: lineNo, type: 'slice', trackId: track.id, mode: 'transients', text: command });
       }
@@ -211,8 +244,8 @@ export function parseScript(text, project) {
 
     const assign = ASSIGN.exec(command);
     if (assign) {
-      const track = trackByName.get(assign[1].trim().toLowerCase());
-      if (!track) return fail(lineNo, `Unbekannte Spur „${assign[1].trim()}“ – vorhanden: ${trackList()}.`);
+      const track = findTrack(assign[1]);
+      if (!track) return fail(lineNo, unknownTrack(assign[1].trim()));
       const slot = CLIP_SLOTS.indexOf(assign[2].toUpperCase());
       if (!track.clips[slot]) return fail(lineNo, `Spur „${track.name}“ hat keinen Clip im Slot ${assign[2].toUpperCase()}.`);
       return events.push({ bar, line: lineNo, type: 'clip', trackId: track.id, slot, text: command });
@@ -220,7 +253,7 @@ export function parseScript(text, project) {
 
     const ramp = RAMP.exec(command);
     if (ramp) {
-      const target = resolveTarget(ramp[1], trackByName, willExist);
+      const target = resolveTarget(ramp[1].trim(), trackByName, willExist);
       if (target.error) return fail(lineNo, target.error);
       const bars = ramp[4] === undefined ? 0 : Number(ramp[4]);
       return events.push({
@@ -238,16 +271,30 @@ export function parseScript(text, project) {
 
 // „bass.filter.freq“, „bass.volume“, „bass.source.detune“, „master.volume“
 function resolveTarget(path, trackByName, willExist = new Set()) {
-  const parts = path.split('.');
-  if (parts[0].toLowerCase() === 'master') {
-    if (parts[1]?.toLowerCase() !== 'volume' || parts.length !== 2) {
+  const all = String(path).split('.');
+  if (nameKey(all[0]) === 'master') {
+    if (nameKey(all[1]) !== 'volume' || all.length !== 2) {
       return { error: `Am Master gibt es nur „master.volume“.` };
     }
     return { value: { kind: 'master' } };
   }
 
-  const track = trackByName.get(parts[0].toLowerCase());
-  if (!track) return { error: `Unbekannte Spur „${parts[0]}“.` };
+  // Der Spurname steht vorn und darf selbst Punkte enthalten. Deshalb von
+  // lang nach kurz probieren: „Spur 1.volume“ findet „Spur 1“, nicht „Spur 1.volume“.
+  let track = null;
+  let parts = all;
+  for (let take = all.length - 1; take >= 1; take--) {
+    const found = trackByName.get(nameKey(all.slice(0, take).join('.')));
+    if (found) {
+      track = found;
+      parts = [all.slice(0, take).join('.'), ...all.slice(take)];
+      break;
+    }
+  }
+  if (!track && trackByName.get(nameKey(path))) {
+    return { error: `„${path}“ ist eine Spur, aber noch kein Ziel – gemeint ist z. B. „${path}.volume“.` };
+  }
+  if (!track) return { error: `Unbekannte Spur „${all[0]}“.` };
 
   if (parts.length === 2) {
     const name = parts[1].toLowerCase();

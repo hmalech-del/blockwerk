@@ -87,6 +87,66 @@ check('Fehlermeldung nennt die möglichen Parameter',
 check('Fehlende Effektkette wird erkannt',
   /keinen Effekt/.test(parsed.bad.errors[4].message), parsed.bad.errors[4].message);
 
+// --------------------------------------------- Spurnamen mit Leerzeichen
+// Neue Spuren heissen „Spur 1“ – das Script muss sie finden koennen.
+
+const spaced = await page.evaluate(async () => {
+  const { parseScript, nameKey } = await import('/js/script.js');
+  const p = window.blockwerk.project();
+  const vorher = p.tracks[4].name;
+  p.tracks[4].name = 'Spur 1';
+  const run = (text) => {
+    const { events, errors } = parseScript(text, p);
+    return { types: events.map((e) => e.type), errors: errors.map((e) => e.message), events };
+  };
+  const out = {
+    assign: run('bar 1 Spur 1 = A'),
+    mute: run('mute Spur 1'),
+    zwei: run('mute Spur 1 Kick'),
+    ramp: run('bar 2 Spur 1.volume 0.2 -> 0.9 over 4 bars'),
+    control: run('control 1 Spur 1.volume 0 1 as Pegel'),
+    pattern: run('pattern Spur 1 B = x . . . x . . . x . . . x . . .'),
+    fx: run('bar 1 add Spur 1 crusher\nbar 2 Spur 1.crusher.bits 8 -> 2 over 2 bars'),
+    kompakt: run('mute SPUR1'),
+    unbekannt: run('mute Spur 9'),
+    nurSpur: run('control 2 Spur 1 0 1'),
+    schluessel: nameKey('  SPUR  1 '),
+  };
+  p.tracks[4].name = vorher;
+  return out;
+});
+
+const sauber = (r, types) => r.errors.length === 0 && r.types.join(',') === types;
+check('Clipzuweisung mit Leerzeichen im Namen', sauber(spaced.assign, 'clip'),
+  spaced.assign.errors.join(' | ') || spaced.assign.types.join(','));
+check('mute mit Leerzeichen im Namen', sauber(spaced.mute, 'mute'),
+  spaced.mute.errors.join(' | '));
+check('Zwei Spuren hintereinander werden getrennt',
+  sauber(spaced.zwei, 'mute') && spaced.zwei.events[0].trackIds.length === 2,
+  spaced.zwei.errors.join(' | ') || `${spaced.zwei.events[0]?.trackIds.length} Spuren`);
+check('Fahrt auf eine Spur mit Leerzeichen',
+  sauber(spaced.ramp, 'ramp') && spaced.ramp.events[0].target.param === 'volume',
+  spaced.ramp.errors.join(' | '));
+check('Live-Regler auf eine Spur mit Leerzeichen',
+  sauber(spaced.control, 'control') && spaced.control.events[0].label === 'Pegel'
+  && spaced.control.events[0].min === 0 && spaced.control.events[0].max === 1,
+  spaced.control.errors.join(' | '));
+check('Muster für eine Spur mit Leerzeichen',
+  sauber(spaced.pattern, 'pattern') && spaced.pattern.events[0].slot === 1,
+  spaced.pattern.errors.join(' | '));
+check('add trennt Spurname und Effekt', sauber(spaced.fx, 'addFx,ramp'),
+  spaced.fx.errors.join(' | ') || spaced.fx.types.join(','));
+check('Leerzeichen und Groß-/Kleinschreibung sind egal',
+  sauber(spaced.kompakt, 'mute') && spaced.schluessel === 'spur1',
+  `${spaced.kompakt.errors.join(' | ')} / Schlüssel „${spaced.schluessel}“`);
+check('Eine unbekannte Spur bleibt ein Fehler mit Liste',
+  spaced.unbekannt.errors.length === 1 && /Spur 9/.test(spaced.unbekannt.errors[0])
+  && /Kick/.test(spaced.unbekannt.errors[0]),
+  spaced.unbekannt.errors.join(' | '));
+check('Eine Spur allein ist kein Regelziel',
+  spaced.nurSpur.errors.length === 1 && /noch kein Ziel/.test(spaced.nurSpur.errors[0]),
+  spaced.nurSpur.errors.join(' | '));
+
 // -------------------------------------------------------------- Ausführung
 
 await page.click('#power');
@@ -300,6 +360,22 @@ check('Fehler erscheinen im Reiter mit Zeilennummer',
   (await page.textContent('.script-errors')).includes('Zeile 2'),
   (await page.textContent('.script-errors')).trim().slice(0, 60));
 check('Statuszeile meldet Fehler', (await page.textContent('.script-status')).includes('Fehler'));
+
+// Namen zum Antippen: die Leiste nennt Spuren und Szenen und setzt sie ein.
+const namesShown = await page.evaluate(() =>
+  [...document.querySelectorAll('.script-names .name-chip')].map((b) => b.dataset.name));
+check('Die Namen des Sets stehen über dem Editor',
+  namesShown.includes('Kick') && namesShown.includes('Hook'), namesShown.join(','));
+
+await page.fill('[data-role="text"]', 'mute ');
+await page.evaluate(() => {
+  const field = document.querySelector('[data-role="text"]');
+  field.setSelectionRange(field.value.length, field.value.length);
+});
+await page.click('.script-names .name-chip[data-name="Kick"]');
+await page.waitForTimeout(80);
+const inserted = await page.inputValue('[data-role="text"]');
+check('Ein angetippter Name landet an der Schreibmarke', inserted === 'mute Kick', inserted);
 
 await page.click('[data-act="example"]');
 await page.waitForTimeout(150);

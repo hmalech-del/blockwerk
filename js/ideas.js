@@ -113,22 +113,34 @@ export function varyMelody(steps, { amount = 0.3, scaleLength = 7 } = {}) {
   const on = steps.map((s, i) => (s.on ? i : -1)).filter((i) => i >= 0);
   if (!on.length) return steps.map((s) => ({ ...s }));
   const next = steps.map((s) => ({ ...s }));
-  const touch = Math.max(1, Math.round(on.length * amount));
+  const inner = on.slice(1, -1); // Der Rahmen bleibt: Anfang und Ende tragen
+  if (!inner.length) return next;
+  const want = Math.max(1, Math.round(on.length * amount));
 
-  for (let k = 0; k < touch; k++) {
-    const index = on[rand(on.length)];
-    if (index === on[0] || index === on[on.length - 1]) continue; // Rahmen bleibt
+  // Ein Versuch kann ins Leere laufen – etwa wenn der Nachbarschritt belegt
+  // ist. Deshalb wird nachgefasst: „Variieren“ ohne hörbare Wirkung fühlt
+  // sich wie ein kaputter Knopf an.
+  let done = 0;
+  for (let tries = 0; done < want && tries < want * 12; tries++) {
+    const index = inner[rand(inner.length)];
+    if (!next[index].on) continue; // schon weggezogen
     if (chance(0.45)) {
       // Ton verschieben
       next[index].deg += chance(0.5) ? 1 : -1;
-    } else {
-      // Anschlag verschieben
-      const to = clamp(index + (chance(0.5) ? 1 : -1), 0, steps.length - 1);
-      if (!next[to].on) {
-        next[to] = { ...next[index] };
-        next[index] = { on: 0, deg: 0 };
-      }
+      done++;
+      continue;
     }
+    // Anschlag verschieben
+    const to = clamp(index + (chance(0.5) ? 1 : -1), 0, steps.length - 1);
+    if (next[to].on) continue;
+    next[to] = { ...next[index] };
+    next[index] = { on: 0, deg: 0 };
+    done++;
+  }
+
+  // Letzte Sicherung gegen den Zufall, der sich selbst aufhebt.
+  if (steps.every((s, i) => s.on === next[i].on && s.deg === next[i].deg)) {
+    next[inner[rand(inner.length)]].deg += 1;
   }
   return next;
 }
