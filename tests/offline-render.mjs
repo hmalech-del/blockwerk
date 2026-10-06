@@ -31,12 +31,30 @@ const rows = await page.evaluate(async () => {
 
   const out = [];
 
+  // Der Sampler braucht Material – sonst waere Stille sein korrektes Ergebnis.
+  const sampleContext = (ctx) => {
+    const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.sin(i * 0.05) * 0.6;
+    return { buffer, slice: { start: 0.1, end: 0.5 } };
+  };
+
   for (const src of SOURCES) {
     const ctx = new OfflineAudioContext(1, 44100, 44100);
-    const voice = src.spawn(ctx, defaultParams(src.id), 220, 0);
+    const voice = src.spawn(ctx, defaultParams(src.id), 220, 0, src.needsSample ? sampleContext(ctx) : null);
     voice.out.connect(ctx.destination);
     voice.release(0.6);
     out.push({ kind: 'Quelle', name: src.name, ...analyse(await ctx.startRendering()) });
+  }
+
+  // Und ohne Material muss er still bleiben, statt zu knacken.
+  {
+    const ctx = new OfflineAudioContext(1, 44100, 22050);
+    const sampler = SOURCES.find((s) => s.needsSample);
+    const voice = sampler.spawn(ctx, defaultParams(sampler.id), 220, 0, null);
+    voice.out.connect(ctx.destination);
+    voice.release(0.3);
+    out.push({ kind: 'Quelle/leer', name: sampler.name, ...analyse(await ctx.startRendering()) });
   }
 
   const throughFx = async (fx, params, seconds) => {
@@ -72,8 +90,15 @@ await browser.close();
 await server.close();
 
 let failed = 0;
+const checksSilent = [];
 for (const r of rows) {
   const mustSound = r.kind === 'Quelle' || r.kind === 'Effekt';
+  if (r.kind === 'Quelle/leer') {
+    const silent = r.peak === 0 && r.bad === 0;
+    checksSilent.push(silent);
+    console.log(`${silent ? 'ok    ' : 'FEHLER'} ${r.kind.padEnd(12)} ${r.name.padEnd(12)} bleibt still`);
+    continue;
+  }
   const problem = r.bad > 0 || r.peak > 4 || (mustSound && r.rms < 0.0005);
   if (problem) failed += 1;
   console.log(
@@ -81,6 +106,7 @@ for (const r of rows) {
     ` peak=${r.peak.toFixed(3)} rms=${r.rms.toFixed(4)} nichtEndlich=${r.bad}`
   );
 }
+failed += checksSilent.filter((ok) => !ok).length;
 consoleErrors.forEach((e) => console.log(' -', e));
 console.log(failed || consoleErrors.length ? `\n${failed} Auffälligkeiten` : '\nAlle Bausteine liefern sauberes Signal.');
 process.exit(failed || consoleErrors.length ? 1 : 0);

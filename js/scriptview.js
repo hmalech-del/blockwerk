@@ -66,6 +66,7 @@ export class ScriptView {
           <tr><td><code>remove lead crusher</code></td><td>Effekt wieder entfernen</td></tr>
           <tr><td><code>bypass lead delay on</code></td><td>Effekt überbrücken (<code>on</code> / <code>off</code>)</td></tr>
           <tr><td><code>pattern kick C = x . . . x . . .</code></td><td>Clip aus dem Script schreiben (1, 2 oder 4 Takte)</td></tr>
+          <tr><td><code>slice chop 16</code></td><td>Sample der Spur neu zerlegen – auch <code>slice chop transients</code></td></tr>
           <tr><td><code>control 1 lead.delay.mix as Delay</code></td><td>Live-Regler belegen; Bereich optional: <code>… 0 0.8 as Delay</code></td></tr>
           <tr><td><code>end</code></td><td>Wiedergabe anhalten</td></tr>
         </table>

@@ -61,6 +61,7 @@
     <button data-view="live" class="on">Live</button>
     <button data-view="seq">Sequenzer</button>
     <button data-view="sound">Klang</button>
+    <button data-view="sampler">Sampler</button>
     <button data-view="script">Script</button>
     <output id="audio-state" class="audio-state" hidden></output>
     <div class="tabs-right">
@@ -104,6 +105,15 @@
           <option value="">Preset wählen …</option>
         </select>
       </div>
+    </section>
+
+    <section data-panel="sampler" hidden>
+      <div class="section-head">
+        <h2>Sampler</h2>
+        <p>Aufnehmen, zerhacken, antippen. Die Slices spielt dann das Raster –
+           die Stufe eines Schritts wählt den Slice.</p>
+      </div>
+      <div id="sampler" class="sampler"></div>
     </section>
 
     <section data-panel="script" hidden>

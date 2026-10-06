@@ -7,11 +7,13 @@ import { Sequencer } from './sequencer.js';
 import { Live, macroTargets, pathToTarget } from './live.js';
 import { ScriptRunner, targetSpec } from './script.js';
 import { ScriptView } from './scriptview.js';
+import { SamplerView } from './sampler.js';
+import { SampleStore, Recorder, equalSlices, detectTransients } from './samples.js';
 import { Keyboard } from './keyboard.js';
 import { parseSteps, stepsToText } from './pattern.js';
 import {
   CLIP_SLOTS, SCALES, TRACK_COLORS, applyPreset, degToMidi, demoProject,
-  makeClip, makeProject, makeScene, makeTrack, normalizeProject, SOUND_PRESETS,
+  makeClip, makeProject, makeSample, makeScene, makeTrack, normalizeProject, SOUND_PRESETS,
 } from './project.js';
 import { defaultParams } from './modules.js';
 
@@ -20,7 +22,10 @@ const LEGACY_KEY = 'blockwerk.patch.v1';
 
 const $ = (sel) => document.querySelector(sel);
 
-const engine = new Engine();
+const samples = new SampleStore();
+const engine = new Engine(samples);
+let recorder = null;
+let selectedSampleId = null;
 let project = loadProject();
 let selectedId = project.tracks[0]?.id || null;
 let userSuspended = false;
@@ -39,6 +44,7 @@ const script = new ScriptRunner({
   getProject: () => project,
   engine,
   transport,
+  samples,
   onEvent: () => {
     sequencer.render();
     live.refresh();
@@ -51,6 +57,7 @@ const script = new ScriptRunner({
     live.render();
     sequencer.render();
     if (currentView === 'sound') rack.render();
+    if (currentView === 'sampler') samplerView.render();
     save();
   },
 });
@@ -231,6 +238,168 @@ const live = new Live($('#live'), {
   },
 });
 
+// ------------------------------------------------------------- Sampler
+
+function assignedTrack(sample) {
+  return project.tracks.find((t) => t.sampleId === sample.id && t.source.type === 'sampler') || null;
+}
+
+async function addSample(name, { data, sampleRate }) {
+  const duration = data.length / sampleRate;
+  const sample = makeSample({ name, duration, sampleRate, slices: equalSlices(duration, 8) });
+  samples.attach(engine.ctx);
+  samples.put(sample.id, data, sampleRate);
+  samples.persist(sample.id, data, sampleRate);
+  project.samples.push(sample);
+  selectedSampleId = sample.id;
+  save();
+  samplerView.render();
+  return sample;
+}
+
+const samplerView = new SamplerView($('#sampler'), {
+  getProject: () => project,
+  getSelectedSample: () => selectedSampleId,
+  getBuffer: (id) => samples.get(id),
+  isRecording: () => !!recorder?.recording,
+  recordingSeconds: () => (recorder?.recording ? recorder.seconds : 0),
+
+  onPick: (id) => {
+    selectedSampleId = id;
+    samplerView.render();
+  },
+
+  onRecord: async (kind) => {
+    await ensureAudio();
+    if (recorder?.recording) {
+      const result = recorder.stop();
+      recorder = null;
+      if (result && result.data.length > 2000) {
+        await addSample(kind === 'mic' ? 'Mikrofon' : 'Mitschnitt', result);
+      } else {
+        samplerView.render();
+      }
+      return;
+    }
+    recorder = new Recorder(engine.ctx);
+    try {
+      if (kind === 'mic') await recorder.startFromMicrophone();
+      else recorder.startFrom(engine.limiter || engine.master);
+    } catch (e) {
+      recorder = null;
+      alert('Kein Zugriff auf das Mikrofon. Im Browser die Erlaubnis erteilen und erneut versuchen.');
+    }
+    samplerView.render();
+  },
+
+  onFile: async (file) => {
+    await ensureAudio();
+    samples.attach(engine.ctx);
+    try {
+      const decoded = await samples.decode(await file.arrayBuffer());
+      await addSample(file.name.replace(/\.[^.]+$/, ''), decoded);
+    } catch (e) {
+      alert('Diese Datei konnte nicht gelesen werden.');
+    }
+  },
+
+  onChop: (sample, count) => {
+    sample.slices = equalSlices(sample.duration, count);
+    save();
+    samplerView.render();
+  },
+
+  onTransients: (sample, sensitivity) => {
+    const buffer = samples.get(sample.id);
+    if (!buffer) return;
+    sample.slices = detectTransients(buffer, { sensitivity });
+    save();
+    samplerView.render();
+  },
+
+  onSlicesChanged: (sample, { quiet = false } = {}) => {
+    if (!sample.slices.length) sample.slices = [0];
+    save();
+    if (!quiet) samplerView.render();
+  },
+
+  onAudition: (sample, index) => {
+    ensureAudio();
+    const track = assignedTrack(sample);
+    if (track) engine.noteOn(track.id, 60, undefined, { dur: 0.6, deg: index });
+    else engine.auditionSlice(sample, index);
+  },
+
+  onRename: (sample) => {
+    const name = prompt('Name des Samples?', sample.name);
+    if (name === null) return;
+    sample.name = name.trim() || sample.name;
+    save();
+    samplerView.render();
+  },
+
+  onDelete: (sample) => {
+    project.samples = project.samples.filter((s) => s.id !== sample.id);
+    for (const track of project.tracks) {
+      if (track.sampleId === sample.id) track.sampleId = null;
+    }
+    samples.forget(sample.id);
+    selectedSampleId = project.samples[0]?.id || null;
+    save();
+    samplerView.render();
+    sequencer.render();
+  },
+
+  onAssign: (sample, value) => {
+    if (!value) return;
+    let track;
+    if (value === 'new') {
+      if (project.tracks.length >= 8) return;
+      track = makeTrack({
+        name: sample.name.slice(0, 12),
+        color: TRACK_COLORS[project.tracks.length % TRACK_COLORS.length],
+        sourceType: 'sampler',
+        clips: [''],
+      });
+      project.tracks.push(track);
+      selectedId = track.id;
+    } else {
+      track = project.tracks.find((t) => t.id === value);
+      if (!track) return;
+      track.source = { type: 'sampler', params: defaultParams('sampler') };
+    }
+    track.sampleId = sample.id;
+    engine.sync();
+    save();
+    samplerView.render();
+    sequencer.render();
+    live.render();
+    rack.render();
+  },
+
+  // Die beiden Knöpfe, die aus Zerhacken sofort Musik machen.
+  onLayOut: (sample) => {
+    const track = assignedTrack(sample);
+    const clip = track?.clips[track.clip];
+    if (!clip) return;
+    clip.steps = clip.steps.map((step, i) => ({ on: i % 4 === 0 ? 2 : 1, deg: i % sample.slices.length }));
+    save();
+    sequencer.render();
+  },
+
+  onShuffle: (sample) => {
+    const track = assignedTrack(sample);
+    const clip = track?.clips[track.clip];
+    if (!clip) return;
+    clip.steps = clip.steps.map((step) => ({
+      on: step.on,
+      deg: Math.floor(Math.random() * sample.slices.length),
+    }));
+    save();
+    sequencer.render();
+  },
+});
+
 const scriptView = new ScriptView($('#script'), {
   getProject: () => project,
   runner: () => script,
@@ -269,7 +438,21 @@ const keyboard = new Keyboard($('#keyboard'), {
 async function ensureAudio() {
   if (userSuspended || engine.running) return;
   await engine.start();
+  await restoreSamples();
   updatePower();
+}
+
+// Die Wellenformen liegen in IndexedDB und brauchen einen AudioContext –
+// also erst nach der ersten Nutzergeste.
+let samplesRestored = false;
+async function restoreSamples() {
+  if (samplesRestored || !engine.ctx) return;
+  samplesRestored = true;
+  samples.attach(engine.ctx);
+  const ids = project.samples.map((s) => s.id);
+  if (!ids.length) return;
+  const count = await samples.restore(ids);
+  if (count) samplerView.render();
 }
 
 function updatePower() {
@@ -309,6 +492,9 @@ function useProject(next) {
   transport.stop();
   project = next;
   selectedId = project.tracks[0]?.id || null;
+  selectedSampleId = project.samples[0]?.id || null;
+  samplesRestored = false;
+  restoreSamples();
   engine.panic();
   engine.setProject(project);
   syncControls();
@@ -509,6 +695,7 @@ for (const tab of document.querySelectorAll('[data-view]')) {
     if (view === 'sound') rack.render();
     if (view === 'live') live.render();
     if (view === 'script') scriptView.render();
+    if (view === 'sampler') samplerView.render();
   });
 }
 
@@ -571,13 +758,18 @@ scriptView.render();
 updatePower();
 updatePlay();
 
-window.blockwerk = { engine, transport, project: () => project, sequencer, live, rack, script, scriptView, keyboard, CLIP_SLOTS };
+window.blockwerk = {
+  engine, transport, samples, project: () => project,
+  sequencer, live, rack, script, scriptView, samplerView, keyboard, CLIP_SLOTS,
+  addSample: (name, data, rate) => addSample(name, { data, sampleRate: rate }),
+};
 
 (function frame() {
   if (transport.playing) script.updateRamps(transport.position());
   if (currentView === 'sound') rack.setLevel(engine.running ? engine.level() : 0);
   if (currentView === 'seq') sequencer.tick();
   if (currentView === 'live') live.tick(script);
+  if (currentView === 'sampler') samplerView.tick();
   const bar = $('#position');
   if (bar) {
     const pos = transport.position();

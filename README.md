@@ -86,7 +86,8 @@ Streifen statt eines Rasters:
 - **Klang** – zweiter Reiter: Quelle und Effektkette der ausgewählten Spur.
 - **Klaviatur** – spielt die ausgewählte Spur, Tasten `A W S E D F T G Z H U J K`,
   Oktave mit `←` / `→`.
-- **Script** – vierter Reiter: der Ablauf als Text, mit `Strg`/`Cmd` + `Enter`
+- **Sampler** – vierter Reiter: aufnehmen, zerhacken, Slices antippen.
+- **Script** – fünfter Reiter: der Ablauf als Text, mit `Strg`/`Cmd` + `Enter`
   übernehmen. Läuft erst, wenn „Script aktiv" gesetzt ist.
 
 Das Set wird automatisch im Browser gespeichert; Export und Import laufen über JSON.
@@ -126,6 +127,7 @@ bar 33   end
 | `bypass lead delay on` | Effekt überbrücken (`on` / `off`) |
 | `pattern kick C = x . . . x . . .` | Clip aus dem Script schreiben (1, 2 oder 4 Takte) |
 | `control 1 lead.delay.mix as Delay` | Live-Regler belegen, Bereich optional |
+| `slice break 16` | Sample der Spur neu zerlegen; `slice break transients` sucht die Anschläge |
 | `end` | Wiedergabe anhalten |
 
 Ziele für Fahrten: `spur.volume`, `spur.gate`, `spur.source.<parameter>`,
@@ -165,6 +167,44 @@ kommt automatisch aus dem Modul, lässt sich im Script aber eingrenzen
 (`control 1 bass.filter.freq 300 1200 as Bass`), damit man live nicht versehentlich
 über den nutzbaren Bereich hinausdreht.
 
+## Sampler
+
+Aufnehmen, zerhacken, antippen – und die Slices spielt danach das normale
+Raster. Der Reiter **Sampler**:
+
+- **Aufnahme** von **Mikrofon** oder von **„Was du hörst"** (dem eigenen Master).
+  Das zweite ist der schnellste Weg zu eigenem Material: Loop bauen, mitschneiden,
+  zerhacken, über den eigenen Groove legen.
+- **Datei** laden geht auch (alles, was der Browser dekodieren kann).
+- **Zerhacken** in 4, 8, 16 oder 32 gleiche Teile – oder **Anschläge finden**:
+  eine Energieanalyse setzt die Marken auf die Schläge, die Empfindlichkeit
+  regelt, wie viel als Schlag gilt.
+- **Marken von Hand**: ziehen verschiebt, Doppeltippen auf eine Marke entfernt
+  sie, Doppeltippen daneben setzt eine neue. Einfaches Tippen hört den Slice.
+- **Slices aufs Raster** füllt den Clip mit aufsteigenden Slices (Akzent auf
+  jeder Viertel), **Würfeln** verteilt sie neu. Zwei Knöpfe, aus denen sofort
+  Musik wird.
+
+Der Trick dahinter: **bei einer Sampler-Spur zählt die Stufe eines Schritts
+nicht die Tonhöhe, sondern den Slice.** Dadurch funktionieren Clips, Szenen,
+Textmuster (`x3` = Slice 3) und das Script unverändert – es musste dafür nichts
+Neues gebaut werden. Stufen jenseits der letzten Marke laufen rundherum.
+
+Live zerhacken geht auch aus dem Script:
+
+```
+bar 17  slice break 32          # Stotter-Takt
+bar 18  slice break transients  # zurück auf die Schläge
+```
+
+Die Sampler-Spur hat zusätzlich Tonhöhe (Halbtöne), Anfang und Länge innerhalb
+des Slices, Rückwärts sowie eine kurze Hüllkurve gegen Knackser.
+
+Grenzen, die man kennen sollte: Aufnahmen sind **mono** (halbiert Speicher und
+Rechenzeit beim Zeichnen) und liegen in **IndexedDB** des Browsers, nicht im
+exportierten Set – ein Export trägt also Schnittmarken und Spuren, aber nicht
+die Wellenform.
+
 ## Clips als Text
 
 Jeder Clip lässt sich als Text lesen und schreiben (`Clip als Text`). Das ist der
@@ -196,6 +236,7 @@ die Quarte, in Pentatonik die Sexte. Dieselbe Zeile klingt in jeder Tonart richt
 | Rauschen | gefiltertes Rauschen, Filterfarbe folgt optional der Tonhöhe |
 | FM | Zwei-Operator-FM mit Ratio, Index und abfallendem Modulationshub |
 | Perc | Schlagzeugstimme: fallende Tonhöhe, Klick, Rauschanteil |
+| Sampler | spielt Ausschnitte eines Samples; die Stufe wählt den Slice |
 
 | Effekte | |
 | --- | --- |
@@ -222,6 +263,8 @@ js/
   pattern.js     Clip ⇄ Text
   sequencer.js   Raster, Clips, Spielkopf
   live.js        Streifen mit Vorschau, Szenen, Pads
+  samples.js     Aufnahme, Zerlegung, Wellenform, IndexedDB
+  sampler.js     Sampler-Ansicht: Wellenform, Marken, Slices
   script.js      Set-Script: Parser und Ausführung
   scriptview.js  Editor mit Fehlermeldungen
   rack.js        Klangkette der ausgewählten Spur
@@ -245,7 +288,7 @@ Tonartwechsel das laufende Set, und derselbe Clip passt in jeden Kontext.
 
 ## Tests
 
-Fünf Playwright-Tests laufen headless gegen einen eingebauten Mini-Webserver:
+Sechs Playwright-Tests laufen headless gegen einen eingebauten Mini-Webserver:
 
 ```bash
 npm install
@@ -258,6 +301,10 @@ npm test
   Parametern auf Minimum bzw. Maximum.
 - `tests/sequencer.mjs` misst die Abstände der geplanten Noten, prüft
   quantisierte Clipwechsel, Skalenrechnung, Textformat und Stimmenfreigabe.
+- `tests/sampler.mjs` legt ein Testsignal mit bekannten Anschlägen an und prüft,
+  dass die Erkennung sie auf wenige Millisekunden genau findet, dass die Stufe
+  den richtigen Ausschnitt wählt, dass ein Mitschnitt echtes Signal enthält und
+  dass Samples einen Reload überleben.
 - `tests/script.mjs` prüft den Parser samt Fehlermeldungen, das Auslösen an
   Taktgrenzen, Parameterfahrten, Effekt- und Musterbefehle, Änderungen im
   laufenden Betrieb und dass Handgriffe den Plan überstimmen.
@@ -271,11 +318,11 @@ npm test
 
 ## Fahrplan
 
-Sequenzer, Live-Ansicht, Live-Regler und Set-Script stehen. Denkbar als
-Nächstes: ein **Sampler** als weitere Quelle, Modulationsquellen (LFO auf
-beliebige Parameter), Aufnahme als WAV, MIDI-Eingang für Controller mit echten
-Knöpfen, Script-Marken direkt im Streifen, und ein Worker-Timer, damit der Takt
-auch in Hintergrund-Tabs nicht stolpert.
+Sequenzer, Live-Ansicht, Live-Regler, Set-Script und Sampler stehen. Denkbar
+als Nächstes: Samples in den Export packen (als WAV eingebettet), Aufnahme des
+Sets als WAV, Modulationsquellen (LFO auf beliebige Parameter), MIDI-Eingang für
+Controller mit echten Knöpfen, Script-Marken direkt im Streifen, und ein
+Worker-Timer, damit der Takt auch in Hintergrund-Tabs nicht stolpert.
 
 ## Lizenz
 

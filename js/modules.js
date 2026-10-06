@@ -259,6 +259,84 @@ const percussion = {
   },
 };
 
+// Sampler: die Stufe im Raster waehlt den Slice, nicht die Tonhoehe. Dadurch
+// sequenzieren Clips, Szenen und Script Slices, ohne dass sich daran etwas
+// aendern muesste.
+const samplerVoice = {
+  id: 'sampler',
+  kind: 'source',
+  name: 'Sampler',
+  hint: 'Spielt Ausschnitte eines Samples. Die Stufe im Raster wählt den Slice.',
+  needsSample: true,
+  params: [
+    { id: 'pitch', label: 'Tonhöhe', min: -24, max: 24, def: 0, step: 1, unit: 'ht' },
+    { id: 'begin', label: 'Anfang', min: 0, max: 0.9, def: 0 },
+    { id: 'length', label: 'Länge', min: 0.05, max: 2, def: 1 },
+    {
+      id: 'reverse', label: 'Rückwärts', type: 'select', def: 'off',
+      options: [{ value: 'off', label: 'nein' }, { value: 'on', label: 'ja' }],
+    },
+    { id: 'attack', label: 'Anschlag', min: 0.001, max: 0.3, def: 0.003, unit: 's', scale: 'log' },
+    { id: 'release', label: 'Ausklang', min: 0.005, max: 2, def: 0.06, unit: 's', scale: 'log' },
+  ],
+  spawn(ctx, p, freq, t, context = {}) {
+    const out = ctx.createGain();
+    out.gain.value = 0.9;
+    const { buffer, slice } = context || {};
+    if (!buffer || !slice) return silentVoice(out);
+
+    const rate = Math.pow(2, (p.pitch || 0) / 12);
+    const sliceLength = Math.max(0.005, slice.end - slice.start);
+    const offset = clamp(slice.start + sliceLength * p.begin, 0, Math.max(0, buffer.duration - 0.002));
+    const span = Math.max(0.002, Math.min(sliceLength * p.length, buffer.duration - offset));
+    const playFor = span / rate;
+
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = rate;
+
+    const env = ctx.createGain();
+    const attack = Math.min(p.attack, playFor / 2);
+    const release = Math.min(p.release, playFor / 2);
+    env.gain.setValueAtTime(0.0001, t);
+    env.gain.linearRampToValueAtTime(1, t + attack);
+    env.gain.setValueAtTime(1, t + Math.max(attack, playFor - release));
+    env.gain.linearRampToValueAtTime(0.0001, t + playFor);
+
+    src.connect(env).connect(out);
+    src.start(t, offset, span);
+
+    let stopped = false;
+    return {
+      out,
+      release(time) {
+        if (stopped) return t + playFor;
+        stopped = true;
+        const end = Math.min(t + playFor, Math.max(time, t) + Math.max(0.005, p.release));
+        env.gain.cancelScheduledValues(time);
+        env.gain.setValueAtTime(Math.max(0.0001, env.gain.value), time);
+        env.gain.linearRampToValueAtTime(0.0001, end);
+        try { src.stop(end + 0.01); } catch (e) { /* laeuft schon aus */ }
+        return end + 0.02;
+      },
+      kill(time) {
+        stopped = true;
+        try { src.stop(time); } catch (e) { /* egal */ }
+        try { out.disconnect(); } catch (e) { /* egal */ }
+      },
+    };
+  },
+};
+
+// Ohne Sample bleibt die Stimme still, statt die Kette zu stoeren.
+function silentVoice(out) {
+  return {
+    out,
+    release(time) { return time; },
+    kill() { try { out.disconnect(); } catch (e) { /* egal */ } },
+  };
+}
+
 // Gemeinsames Stimmen-Interface für alle Quellen.
 function voiceHandle(ctx, p, env, out, nodes) {
   let stopped = false;
@@ -594,6 +672,7 @@ export const MODULES = {
   noise,
   fm: fmVoice,
   perc: percussion,
+  sampler: samplerVoice,
   filter: filterFx,
   drive: driveFx,
   crusher: crusherFx,

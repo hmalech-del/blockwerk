@@ -19,6 +19,7 @@
 import { MODULES, EFFECTS, defaultParams } from './modules.js';
 import { CLIP_SLOTS, STEPS_PER_BAR, uid } from './project.js';
 import { parseSteps } from './pattern.js';
+import { equalSlices, detectTransients } from './samples.js';
 
 const SCALE_WORDS = {
   minor: 'minor', min: 'minor', moll: 'minor',
@@ -189,6 +190,21 @@ export function parseScript(text, project) {
       });
     }
 
+    // Live-Slicing: dieselbe Zerlegung wie im Sampler-Reiter, nur im Ablauf.
+    if (head === 'slice') {
+      const track = trackByName.get(String(words[1] ?? '').toLowerCase());
+      if (!track) return fail(lineNo, `Unbekannte Spur „${words[1] ?? ''}“ – vorhanden: ${trackList()}.`);
+      const what = String(words[2] ?? '').toLowerCase();
+      if (what === 'transients') {
+        return events.push({ bar, line: lineNo, type: 'slice', trackId: track.id, mode: 'transients', text: command });
+      }
+      const count = Number(what);
+      if (!(count >= 1 && count <= 64)) {
+        return fail(lineNo, `„slice“ braucht eine Zahl von 1 bis 64 oder das Wort transients.`);
+      }
+      return events.push({ bar, line: lineNo, type: 'slice', trackId: track.id, mode: 'equal', count, text: command });
+    }
+
     if (head === 'end' || head === 'stop') {
       return events.push({ bar, line: lineNo, type: 'end', text: command });
     }
@@ -274,9 +290,10 @@ function resolveTarget(path, trackByName, willExist = new Set()) {
 // ----------------------------------------------------------------- Spielen
 
 export class ScriptRunner {
-  constructor({ getProject, engine, transport, onEvent = () => {}, onStructure = () => {} }) {
+  constructor({ getProject, engine, transport, samples = null, onEvent = () => {}, onStructure = () => {} }) {
     this.getProject = getProject;
     this.engine = engine;
+    this.samples = samples;
     this.transport = transport;
     this.onEvent = onEvent;
     this.onStructure = onStructure;
@@ -397,6 +414,19 @@ export class ScriptRunner {
           bars: event.bars,
           steps: event.steps.map((step) => ({ ...step })),
         };
+        this.onStructure();
+        break;
+      }
+      case 'slice': {
+        const track = project.tracks.find((t) => t.id === event.trackId);
+        const sample = project.samples?.find((s) => s.id === track?.sampleId);
+        if (!sample) break;
+        if (event.mode === 'equal') {
+          sample.slices = equalSlices(sample.duration, event.count);
+        } else {
+          const buffer = this.samples?.get(sample.id);
+          if (buffer) sample.slices = detectTransients(buffer, { sensitivity: 0.5 });
+        }
         this.onStructure();
         break;
       }

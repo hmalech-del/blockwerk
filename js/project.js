@@ -55,6 +55,7 @@ export function makeTrack(partial = {}) {
       bypass: false,
       params: { ...defaultParams(fxType), ...(params || {}) },
     })),
+    sampleId: partial.sampleId || null,
     mix: { volume: partial.volume ?? 0.8, mute: false, solo: false },
     octave: partial.octave ?? 0,
     gate: partial.gate ?? 0.9,
@@ -71,6 +72,16 @@ export function makeTrack(partial = {}) {
 // Eine Szene ist eine Momentaufnahme: welcher Clip läuft je Spur, was ist
 // stumm. Sie wird über Spur-IDs gespeichert, damit Umsortieren nichts kaputt
 // macht.
+export function makeSample({ name, duration, sampleRate, slices }) {
+  return {
+    id: uid('smp'),
+    name: name || 'Aufnahme',
+    duration,
+    sampleRate,
+    slices: slices && slices.length ? slices : [0],
+  };
+}
+
 export function makeScene(name, tracks) {
   return {
     id: uid('s'),
@@ -91,6 +102,7 @@ export function makeProject(name = 'Neues Set') {
     scale: 'minor',
     tracks: [makeTrack({ name: 'Spur 1', color: TRACK_COLORS[0], clips: [''] })],
     scenes: [],
+    samples: [],
     macros: [null, null, null, null],
     script: { text: '', enabled: false },
     master: { volume: 0.7 },
@@ -226,6 +238,7 @@ function normalizeTrack(raw, index) {
     mute: !!raw?.mix?.mute,
     solo: !!raw?.mix?.solo,
   };
+  track.sampleId = typeof raw?.sampleId === 'string' ? raw.sampleId : null;
   track.octave = Number.isInteger(raw?.octave) ? Math.max(-3, Math.min(3, raw.octave)) : 0;
   track.gate = typeof raw?.gate === 'number' ? Math.max(0.05, Math.min(4, raw.gate)) : 0.9;
   track.clips = CLIP_SLOTS.map((_, i) => normalizeClip(raw?.clips?.[i]));
@@ -278,12 +291,35 @@ export function normalizeProject(raw) {
     ? tracks.slice(0, 8).map(normalizeTrack)
     : demoProject().tracks;
   project.scenes = normalizeScenes(raw?.scenes, project.tracks);
+  project.samples = normalizeSamples(raw?.samples);
   project.macros = normalizeMacros(raw?.macros, project.tracks);
   project.script = {
     text: typeof raw?.script?.text === 'string' ? raw.script.text.slice(0, 20000) : '',
     enabled: !!raw?.script?.enabled,
   };
   return project;
+}
+
+// Ein Sample merkt sich im Projekt nur Name, Dauer und Schnittmarken – die
+// Wellenform selbst liegt in IndexedDB.
+function normalizeSamples(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 16).map((sample, i) => {
+    const duration = Math.max(0.01, Number(sample?.duration) || 1);
+    const slices = Array.isArray(sample?.slices)
+      ? sample.slices
+        .map(Number)
+        .filter((t) => Number.isFinite(t) && t >= 0 && t < duration)
+        .sort((a, b) => a - b)
+      : [];
+    return {
+      id: String(sample?.id || uid('smp')),
+      name: String(sample?.name || `Sample ${i + 1}`).slice(0, 40),
+      duration,
+      sampleRate: Number(sample?.sampleRate) || 44100,
+      slices: slices.length ? slices : [0],
+    };
+  });
 }
 
 // Live-Regler duerfen nur auf Ziele zeigen, die es noch gibt.

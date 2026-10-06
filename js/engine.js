@@ -2,6 +2,7 @@
 // Die Engine liest das Projekt, hält aber keinen eigenen Bearbeitungszustand.
 
 import { MODULES } from './modules.js';
+import { sliceBounds } from './samples.js';
 
 export const MAX_VOICES_PER_TRACK = 8;
 
@@ -10,10 +11,11 @@ export function midiToFreq(midi) {
 }
 
 export class Engine {
-  constructor() {
+  constructor(samples = null) {
     this.ctx = null;
     this.project = null;
-    this.tracks = new Map(); // trackId -> Laufzeitobjekt
+    this.samples = samples;           // SampleStore, falls vorhanden
+    this.tracks = new Map();          // trackId -> Laufzeitobjekt
   }
 
   get running() {
@@ -193,7 +195,37 @@ export class Engine {
 
   // dur in Sekunden -> die Stimme gibt sich selbst wieder frei (Sequenzer).
   // Ohne dur bleibt sie liegen, bis noteOff kommt (Klaviatur).
-  noteOn(trackId, midi, when, { dur = null, velocity = 1 } = {}) {
+  // Einen Slice kurz vorhoeren, auch ohne zugeordnete Spur.
+  auditionSlice(sample, index) {
+    if (!this.ctx || !this.samples) return;
+    const buffer = this.samples.get(sample.id);
+    if (!buffer) return;
+    const { start, end } = sliceBounds(sample, index);
+    const src = this.ctx.createBufferSource();
+    const gain = this.ctx.createGain();
+    src.buffer = buffer;
+    gain.gain.value = 0.9;
+    src.connect(gain).connect(this.master);
+    src.start(this.ctx.currentTime, start, Math.max(0.01, end - start));
+  }
+
+  // Welches Sample und welcher Ausschnitt gehoeren zu dieser Note?
+  sampleContext(def, deg) {
+    if (!this.samples) return null;
+    const sample = this.project.samples?.find((s) => s.id === def.sampleId);
+    if (!sample) return null;
+    const reverse = def.source.params.reverse === 'on';
+    const buffer = reverse ? this.samples.getReversed(sample.id) : this.samples.get(sample.id);
+    if (!buffer) return null;
+    const bounds = sliceBounds(sample, deg);
+    // Rueckwaerts gespiegelt liegt derselbe Ausschnitt am anderen Ende.
+    const slice = reverse
+      ? { start: sample.duration - bounds.end, end: sample.duration - bounds.start }
+      : bounds;
+    return { buffer, slice, sample };
+  }
+
+  noteOn(trackId, midi, when, { dur = null, velocity = 1, deg = null } = {}) {
     if (!this.ctx) return null;
     const def = this.trackDef(trackId);
     const rt = this.tracks.get(trackId);
@@ -204,7 +236,14 @@ export class Engine {
     if (dur === null && rt.held.has(midi)) this.noteOff(trackId, midi, t);
 
     const mod = MODULES[def.source.type];
-    const voice = mod.spawn(this.ctx, def.source.params, midiToFreq(midi), t);
+    let context = null;
+    if (mod.needsSample) {
+      // Ohne Stufe aus dem Raster (Klaviatur) zaehlen die Tasten ab C4 die
+      // Slices durch.
+      context = this.sampleContext(def, deg === null ? midi - 60 : deg);
+      if (!context) return null;
+    }
+    const voice = mod.spawn(this.ctx, def.source.params, midiToFreq(midi), t, context);
     const amp = this.ctx.createGain();
     amp.gain.value = Math.max(0, Math.min(1, velocity));
     voice.out.connect(amp).connect(rt.chainIn);

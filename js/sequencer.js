@@ -205,7 +205,11 @@ export class Sequencer {
       if (Math.abs(dy) < DRAG_THRESHOLD) return;
       this.drag.moved = true;
       const step = this.drag.clip.steps[this.drag.index];
-      const deg = Math.max(-21, Math.min(21, this.drag.startDeg + Math.round(dy / PIXELS_PER_DEGREE)));
+      // Beim Sampler zaehlt die Stufe Slices – da gibt es kein Minus und kein
+      // Ueber-das-Ende-hinaus.
+      const range = this.degreeRange(this.drag.track);
+      const deg = Math.max(range.min, Math.min(range.max,
+        this.drag.startDeg + Math.round(dy / PIXELS_PER_DEGREE)));
       if (step.deg === deg && step.on) return;
       step.deg = deg;
       if (!step.on) step.on = 1;
@@ -229,6 +233,12 @@ export class Sequencer {
     };
     this.el.addEventListener('pointerup', finish);
     this.el.addEventListener('pointercancel', finish);
+  }
+
+  degreeRange(track) {
+    if (track?.source.type !== 'sampler') return { min: -21, max: 21 };
+    const sample = this.project.samples?.find((s) => s.id === track.sampleId);
+    return { min: 0, max: Math.max(0, (sample?.slices.length || 1) - 1) };
   }
 
   selectedTrack() {

@@ -104,6 +104,7 @@ export class Transport {
       const record = this.engine.noteOn(track.id, midi, time + swingOffset, {
         dur: Math.max(0.02, track.gate * stepDur),
         velocity: cell.on === 2 ? 1 : 0.68,
+        deg: cell.deg,
       });
       if (record) this.scheduled.push({ step, time: time + swingOffset, trackId: track.id, record });
     }
