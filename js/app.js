@@ -9,6 +9,10 @@ import { ScriptRunner, targetSpec } from './script.js';
 import { ScriptView } from './scriptview.js';
 import { GestureField, columnsFor, loopSteps, makeTake, valueAtStep, MAX_TAKES } from './gesture.js';
 import { SamplerView } from './sampler.js';
+import {
+  CONTOURS, MOODS, classifyOnset, generateMelody, generateSliceArrangement,
+  onsetsToSteps, varyMelody,
+} from './ideas.js';
 import { SampleStore, Recorder, equalSlices, detectTransients } from './samples.js';
 import { Keyboard } from './keyboard.js';
 import { parseSteps, stepsToText } from './pattern.js';
@@ -158,6 +162,46 @@ const sequencer = new Sequencer($('#sequencer'), {
     const midi = degToMidi(step.deg, project.root, project.scale) + track.octave * 12;
     engine.noteOn(track.id, midi, undefined, { dur: 0.2, velocity: step.on === 2 ? 1 : 0.7 });
   },
+  onRoll: (track, options) => {
+    const clip = track?.clips[track.clip];
+    if (!clip) return;
+    const stepCount = clip.steps.length;
+    if (track.source.type === 'sampler') {
+      const sample = project.samples.find((s) => s.id === track.sampleId);
+      if (!sample) return sequencer.setStatus('Dieser Spur fehlt noch ein Sample.');
+      clip.steps = generateSliceArrangement({
+        stepCount, sliceCount: sample.slices.length, density: options.density,
+      });
+      sequencer.setStatus(`Neue Slice-Folge aus ${sample.slices.length} Teilen`);
+    } else {
+      clip.steps = generateMelody({
+        stepCount,
+        density: options.density,
+        contour: options.contour,
+        scaleLength: SCALES[project.scale].steps.length,
+      });
+      sequencer.setStatus(`Neue Melodie · ${CONTOURS[options.contour].label}`);
+    }
+    save();
+    sequencer.render();
+    return undefined;
+  },
+
+  onVary: (track, options) => {
+    const clip = track?.clips[track.clip];
+    if (!clip) return;
+    clip.steps = varyMelody(clip.steps, {
+      amount: 0.25 + options.density * 0.3,
+      scaleLength: SCALES[project.scale].steps.length,
+    });
+    save();
+    sequencer.render();
+    sequencer.setStatus('Variiert – was gefiel, ist geblieben');
+    return undefined;
+  },
+
+  onBeatbox: (track) => beatbox(track),
+
   onAddTrack: () => {
     if (project.tracks.length >= 8) return;
     const track = makeTrack({
@@ -239,6 +283,96 @@ const live = new Live($('#live'), {
     save();
   },
 });
+
+// ------------------------------------------------------------ Vorsingen
+
+// Der Mensch gibt den Rhythmus, die Maschine die Töne: Anschläge aus dem
+// Mikrofon landen quantisiert im Raster. Sind Schlagzeugspuren da, werden
+// Bauch, Körper und Zischen automatisch auf sie verteilt.
+let beatboxing = false;
+
+function drumTargets() {
+  const find = (test) => project.tracks.find((t) => test(t.name.toLowerCase(), t));
+  return {
+    kick: find((n, t) => n.includes('kick') || n.includes('bass drum') || t.source.type === 'perc'),
+    snare: find((n) => n.includes('snare') || n.includes('clap')),
+    hat: find((n) => n.includes('hat') || n.includes('hi-hat')),
+  };
+}
+
+async function beatbox(track) {
+  if (beatboxing || !track) return;
+  const clip = track.clips[track.clip];
+  if (!clip) return;
+
+  await ensureAudio();
+  samples.attach(engine.ctx);
+  if (!transport.playing) {
+    script.reset();
+    transport.start();
+    updatePlay();
+  }
+
+  const recorder = new Recorder(engine.ctx);
+  try {
+    await recorder.startFromMicrophone();
+  } catch (e) {
+    sequencer.setStatus('Kein Zugriff aufs Mikrofon.');
+    return;
+  }
+
+  beatboxing = true;
+  const stepCount = clip.steps.length;
+  const startStep = transport.position();
+  const stepSeconds = 60 / project.tempo / 4;
+  const seconds = stepCount * stepSeconds;
+  sequencer.setStatus(`Hört zu … ${(seconds).toFixed(1)} s mitsingen`);
+
+  await new Promise((resolve) => setTimeout(resolve, seconds * 1000 + 120));
+  const result = recorder.stop();
+  beatboxing = false;
+  if (!result || result.data.length < 2000) {
+    sequencer.setStatus('Nichts gehört.');
+    return;
+  }
+
+  const buffer = engine.ctx.createBuffer(1, result.data.length, result.sampleRate);
+  buffer.copyToChannel(result.data, 0);
+  const onsets = detectTransients(buffer, { sensitivity: 0.62, minGap: stepSeconds * 0.8 })
+    .filter((t, i) => i > 0 || t > 0.01);       // die führende Null ist kein Schlag
+
+  if (!onsets.length) {
+    sequencer.setStatus('Keine Anschläge erkannt – lauter und trockener.');
+    return;
+  }
+
+  const targets = drumTargets();
+  const useSplit = !!(targets.kick && (targets.snare || targets.hat));
+  const written = { kick: 0, snare: 0, hat: 0, eigen: 0 };
+  const cleared = new Set();
+
+  for (const onset of onsets) {
+    const kind = useSplit ? classifyOnset(buffer, onset) : 'eigen';
+    const target = useSplit ? (targets[kind] || targets.kick) : track;
+    const targetClip = target.clips[target.clip];
+    if (!targetClip) continue;
+    if (!cleared.has(target.id)) {
+      targetClip.steps = targetClip.steps.map(() => ({ on: 0, deg: 0 }));
+      cleared.add(target.id);
+    }
+    const [index] = onsetsToSteps([onset], {
+      startStep, stepSeconds, stepCount: targetClip.steps.length,
+    });
+    targetClip.steps[index] = { on: index % 4 === 0 ? 2 : 1, deg: targetClip.steps[index].deg };
+    written[kind] += 1;
+  }
+
+  save();
+  sequencer.render();
+  sequencer.setStatus(useSplit
+    ? `${onsets.length} Anschläge verteilt · Kick ${written.kick} · Snare ${written.snare} · HiHat ${written.hat}`
+    : `${onsets.length} Anschläge auf „${track.name}“`);
+}
 
 // ------------------------------------------------------------- Sampler
 
@@ -826,8 +960,10 @@ $('#quantize').innerHTML = [
   [4, '¼ Takt'], [8, '½ Takt'], [16, '1 Takt'], [32, '2 Takte'], [64, '4 Takte'], [1, 'sofort'],
 ].map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
 
-$('#scale').innerHTML = Object.entries(SCALES)
-  .map(([id, s]) => `<option value="${id}">${s.label}</option>`).join('');
+// Stimmungen statt Tonleitern: die Technik steht daneben, Voraussetzung ist
+// sie nicht.
+$('#scale').innerHTML = MOODS
+  .map((m) => `<option value="${m.scale}">${m.label} (${SCALES[m.scale].label})</option>`).join('');
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'H'];
 $('#root').innerHTML = Array.from({ length: 24 }, (_, i) => {
@@ -848,6 +984,7 @@ updatePlay();
 
 window.blockwerk = {
   engine, transport, samples, gestureField, project: () => project,
+  get beatboxing() { return beatboxing; },
   sequencer, live, rack, script, scriptView, samplerView, keyboard, CLIP_SLOTS,
   addSample: (name, data, rate) => addSample(name, { data, sampleRate: rate }),
 };

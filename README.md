@@ -49,6 +49,39 @@ bis hinunter zu 620 px Höhe:
 4. Nach einem Anruf oder App-Wechsel nimmt die App den Ton beim Zurückkehren
    von selbst wieder auf.
 
+## Ohne Theorie zu brauchbaren Tönen
+
+Tonleitern zu kennen ist schön, aber als **Voraussetzung** gehören sie nicht auf
+eine Bühne. Deshalb:
+
+**Stimmungen statt Tonarten.** Die Auswahl heißt Hell, Warm, Dunkel, Rau, Weit,
+Frei – der technische Name steht in Klammern daneben, für alle, die ihn wollen.
+
+**Die Ideen-Leiste** unter dem Raster arbeitet auf der ausgewählten Spur:
+
+- **🎲 Melodie würfeln** – und zwar nicht zufällig. Das musikalische Wissen
+  steckt im Generator: ein gewichtetes Raster (die Eins trägt, Achtel stützen,
+  Sechzehntel würzen), eine **Form** (Bogen, Steigend, Fallend, Welle, Ruhig),
+  überwiegend Schrittbewegung mit gelegentlichem Sprung auf einen tragenden Ton,
+  und ein Schluss, der nach Hause kommt. Der Test misst das: über 75 %, aber
+  nicht 100 % der Bewegungen sind Schritte – dauernd springen klingt wirr, nie
+  springen mäandert.
+- **✦ Variieren** – was gefällt, bleibt. Ein paar Töne wandern, Anfang und Ende
+  bleiben stehen. So entwickelt man eine Linie, statt sie zu verlieren.
+- **Dichte** regelt, wie viel passiert.
+- Bei einer Sampler-Spur heißt derselbe Knopf **Slices würfeln** und baut
+  Slice-Folgen mit **Motiv und Stotterern** – gleichverteilter Zufall klingt wie
+  ein Defekt, nicht wie ein Break.
+
+**🎤 Rhythmus vorsingen.** Du gibst den Rhythmus, die Maschine die Töne: Der
+Knopf startet den Transport, hört einen Clip lang zu und legt deine Anschläge
+quantisiert ins Raster. Sind Schlagzeugspuren da, werden sie **automatisch
+verteilt** – Bauchlaut wird Kick, Körperlaut Snare, Zischlaut HiHat. Die
+Unterscheidung läuft über drei Frequenzbänder, ohne FFT.
+
+Das Runden auf Sechzehntel fängt sowohl die Eingangsverzögerung des Mikrofons
+als auch menschliches Timing ab.
+
 ## Zwei Arten zu spielen
 
 Die Live-Ansicht hat zwei Flächen, umschaltbar mit **Pads / Feld**.
@@ -110,7 +143,7 @@ Streifen statt eines Rasters:
   *vorgemerkt* (der Chip blinkt) und erst an der eingestellten Grenze
   übernommen. Erneutes Tippen bestellt den Wechsel wieder ab.
 - **Wechsel** – legt diese Grenze fest: ¼ Takt bis 4 Takte oder „sofort".
-- **Tonart** – Grundton und Skala gelten für alle Spuren. Ein Wechsel während
+- **Tonart** – Grundton und Stimmung gelten für alle Spuren. Ein Wechsel während
   des Laufs transponiert das ganze Set.
 - **M / S** – Stumm und Solo je Spur.
 - **Klang** – zweiter Reiter: Quelle und Effektkette der ausgewählten Spur.
@@ -294,6 +327,7 @@ js/
   sequencer.js   Raster, Clips, Spielkopf
   live.js        Streifen mit Vorschau, Szenen, Pads, Moduswechsel
   gesture.js     Gestenfeld: Pfade, Anschläge, Schleifenaufnahme
+  ideas.js       Melodien, Slice-Folgen, Stimmungen, Vorsingen
   samples.js     Aufnahme, Zerlegung, Wellenform, IndexedDB
   sampler.js     Sampler-Ansicht: Wellenform, Marken, Slices
   script.js      Set-Script: Parser und Ausführung
@@ -319,7 +353,7 @@ Tonartwechsel das laufende Set, und derselbe Clip passt in jeden Kontext.
 
 ## Tests
 
-Sieben Playwright-Tests laufen headless gegen einen eingebauten Mini-Webserver:
+Acht Playwright-Tests laufen headless gegen einen eingebauten Mini-Webserver:
 
 ```bash
 npm install
@@ -332,6 +366,10 @@ npm test
   Parametern auf Minimum bzw. Maximum.
 - `tests/sequencer.mjs` misst die Abstände der geplanten Noten, prüft
   quantisierte Clipwechsel, Skalenrechnung, Textformat und Stimmenfreigabe.
+- `tests/ideas.mjs` prüft an 40 gewürfelten Melodien, dass jede auf einem
+  tragenden Ton beginnt und endet, dass Akzente auf Zählzeiten sitzen und die
+  Bewegung überwiegend schrittweise bleibt; dazu Slice-Folgen mit Motiv und die
+  Unterscheidung von Bauch-, Körper- und Zischlaut.
 - `tests/sampler.mjs` legt ein Testsignal mit bekannten Anschlägen an und prüft,
   dass die Erkennung sie auf wenige Millisekunden genau findet, dass die Stufe
   den richtigen Ausschnitt wählt, dass ein Mitschnitt echtes Signal enthält und

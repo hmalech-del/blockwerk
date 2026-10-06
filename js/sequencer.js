@@ -3,6 +3,7 @@
 // verschiebt die Tonhöhe in Skalenstufen. Beides funktioniert mit dem Finger.
 
 import { CLIP_SLOTS, STEPS_PER_BAR } from './project.js';
+import { CONTOURS } from './ideas.js';
 
 const DRAG_THRESHOLD = 10;
 const PIXELS_PER_DEGREE = 16;
@@ -48,6 +49,7 @@ export class Sequencer {
     this.el.innerHTML = `
       ${head}
       <div class="tracks">${rows}</div>
+      ${this.ideaMarkup()}
       <div class="seq-foot">
         <button class="ghost" data-act="add-track">+ Spur</button>
         <button class="ghost" data-act="toggle-text">Clip als Text</button>
@@ -64,6 +66,42 @@ export class Sequencer {
     }
     this.renderBarTabs();
     if (this.textOpen) this.renderTextPanel();
+  }
+
+  // Die Ideen-Leiste: Würfel, Form, Dichte und das Mikrofon – alles bezogen
+  // auf die ausgewählte Spur.
+  ideaMarkup() {
+    const track = this.selectedTrack();
+    if (!track) return '';
+    const sampler = track.source.type === 'sampler';
+    const density = this.density ?? 0.45;
+
+    return `
+      <div class="idea-bar">
+        <span class="idea-label">${escapeHtml(track.name)}</span>
+        <button data-act="idea-roll">🎲 ${sampler ? 'Slices würfeln' : 'Melodie würfeln'}</button>
+        <button data-act="idea-vary">✦ Variieren</button>
+        <label class="ctrl small">
+          <span>Dichte</span>
+          <input type="range" min="5" max="100" value="${Math.round(density * 100)}" data-act="idea-density">
+        </label>
+        ${sampler ? '' : `
+          <label class="ctrl small">
+            <span>Form</span>
+            <select data-act="idea-contour">
+              ${Object.entries(CONTOURS).map(([id, c]) =>
+                `<option value="${id}"${id === (this.contour || 'arch') ? ' selected' : ''}>${c.label}</option>`).join('')}
+            </select>
+          </label>`}
+        <button class="rec" data-act="beatbox">🎤 Rhythmus vorsingen</button>
+        <output class="idea-status" data-role="idea-status">${escapeHtml(this.status || '')}</output>
+      </div>`;
+  }
+
+  setStatus(text) {
+    this.status = text;
+    const field = this.el.querySelector('[data-role="idea-status"]');
+    if (field) field.textContent = text;
   }
 
   trackMarkup(track, isSelected) {
@@ -157,6 +195,9 @@ export class Sequencer {
         this.follow = !this.follow;
         return this.render();
       }
+      if (act === 'idea-roll') return this.hooks.onRoll(this.selectedTrack(), this.ideaOptions());
+      if (act === 'idea-vary') return this.hooks.onVary(this.selectedTrack(), this.ideaOptions());
+      if (act === 'beatbox') return this.hooks.onBeatbox(this.selectedTrack());
       if (act === 'add-track') return this.hooks.onAddTrack();
       if (act === 'toggle-text') {
         this.textOpen = !this.textOpen;
@@ -179,10 +220,19 @@ export class Sequencer {
     });
 
     this.el.addEventListener('change', (e) => {
+      if (e.target.dataset.act === 'idea-contour') {
+        this.contour = e.target.value;
+        return undefined;
+      }
       if (e.target.dataset.act !== 'bars') return;
       this.hooks.onClipBars(this.selectedTrack(), Number(e.target.value));
       this.viewBar = 0;
       this.render();
+    });
+
+    this.el.addEventListener('input', (e) => {
+      if (e.target.dataset.act !== 'idea-density') return;
+      this.density = Number(e.target.value) / 100;
     });
 
     this.el.addEventListener('pointerdown', (e) => {
@@ -233,6 +283,10 @@ export class Sequencer {
     };
     this.el.addEventListener('pointerup', finish);
     this.el.addEventListener('pointercancel', finish);
+  }
+
+  ideaOptions() {
+    return { density: this.density ?? 0.45, contour: this.contour || 'arch' };
   }
 
   degreeRange(track) {
@@ -314,4 +368,8 @@ export class Sequencer {
         <p class="hint"><code>.</code> Pause · <code>x</code> an · <code>X</code> Akzent · <code>x3</code> Stufe 3 · <code>|</code> Trenner</p>
       </div>`;
   }
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
