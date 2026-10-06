@@ -1327,3 +1327,8 @@ input[type="range"]::-webkit-slider-runnable-track { border-color: rgba(122, 107
   .power { min-width: 162px; font-size: 11px; letter-spacing: .06em; }
   .play { min-width: 104px; font-size: 12px; }
 }
+
+
+/* Versionszeile: macht in einer Sekunde sichtbar, welcher Stand geladen ist. */
+.version { margin-top: 6px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+.version b { color: var(--neon); font-weight: 700; }

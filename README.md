@@ -39,6 +39,14 @@ python3 -m http.server 8080
 
 Alternativ über GitHub Pages veröffentlichen (Settings → Pages → Branch `main`, Ordner `/`).
 
+**Neue Version wird nicht sichtbar?** Unten auf der Seite steht die geladene
+Versionsnummer – damit sieht man in einer Sekunde, welcher Stand läuft.
+Stylesheet und Einstiegsskript tragen eine Versionskennung in der Adresse, der
+Rest der Module wird von GitHub Pages zehn Minuten lang zwischengespeichert.
+Sofort erzwingen: `Strg`/`Cmd` + `Umschalt` + `R`, auf dem iPhone ein privates
+Fenster. Wer lokal mit `python3 -m http.server` arbeitet, braucht vorher ein
+`git pull`.
+
 ## Auf Laptop und Tablet
 
 Getestet und gemessen von 390 px (iPhone) bis 1920 px, und bei flachen Fenstern
