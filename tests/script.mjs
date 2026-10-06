@@ -87,6 +87,49 @@ check('Fehlermeldung nennt die möglichen Parameter',
 check('Fehlende Effektkette wird erkannt',
   /keinen Effekt/.test(parsed.bad.errors[4].message), parsed.bad.errors[4].message);
 
+// ------------------------------------------ Kein stillschweigendes Schlucken
+// Ein Befehl, der den Rest der Zeile ignoriert, ist auf der Bühne eine Falle:
+// „tempo 88 -> 128 over 16 bars“ sah aus wie eine Fahrt und war ein Sprung.
+
+const streng = await page.evaluate(async () => {
+  const { parseScript } = await import('/js/script.js');
+  const p = window.blockwerk.project();
+  const run = (text) => {
+    const { events, errors } = parseScript(text, p);
+    return { types: events.map((e) => e.type), fehler: errors.map((e) => e.message) };
+  };
+  return {
+    tempofahrt: run('tempo 88 -> 128 over 16 bars'),
+    stopAlles: run('stop all'),
+    keyZuViel: run('key C minor jetzt sofort'),
+    reglerFuenf: run('control 5 bass.volume'),
+    reglerVier: run('control 4 bass.volume'),
+    swingRaster: run('swing 54 on 8'),
+    swingBlank: run('swing 54'),
+    swingKaputt: run('swing 54 auf acht'),
+    swingHoch: run('swing 70'),
+  };
+});
+
+check('Tempo schluckt den Rest der Zeile nicht mehr',
+  streng.tempofahrt.types.length === 0 && /zu viel|Tempofahrten/.test(streng.tempofahrt.fehler[0] || ''),
+  streng.tempofahrt.fehler[0] || streng.tempofahrt.types.join(','));
+check('„stop all“ wird nicht als „stop“ gelesen',
+  streng.stopAlles.types.length === 0 && streng.stopAlles.fehler.length === 1,
+  streng.stopAlles.fehler[0] || streng.stopAlles.types.join(','));
+check('„key“ meldet überzählige Wörter',
+  streng.keyZuViel.types.length === 0 && /zu viel/.test(streng.keyZuViel.fehler[0] || ''),
+  streng.keyZuViel.fehler[0] || '');
+check('Es gibt nur vier Live-Regler – der fünfte meldet sich',
+  streng.reglerFuenf.types.length === 0 && /vier|4/.test(streng.reglerFuenf.fehler[0] || '')
+  && streng.reglerVier.types.join(',') === 'control',
+  streng.reglerFuenf.fehler[0] || '');
+check('Swing wählt sein Raster',
+  streng.swingRaster.fehler.length === 0 && streng.swingRaster.types.join(',') === 'swing'
+  && streng.swingBlank.fehler.length === 0 && streng.swingKaputt.fehler.length === 1
+  && streng.swingHoch.fehler.length === 0,
+  streng.swingKaputt.fehler[0] || '');
+
 // --------------------------------------------- Spurnamen mit Leerzeichen
 // Neue Spuren heissen „Spur 1“ – das Script muss sie finden koennen.
 

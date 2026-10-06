@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Blockwerk – modularer Klangbaukasten</title>
   <meta name="description" content="Modulare Web-Audio-App: Sequenzer, Drum-Loops und frei verkettbare Klangblöcke – gebaut für Tablet und Laptop.">
-  <link rel="stylesheet" href="css/style.css?v=0.9.2">
+  <link rel="stylesheet" href="css/style.css?v=0.9.3">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>▦</text></svg>">
 </head>
 <body>
@@ -31,7 +31,11 @@
 
       <label class="ctrl">
         <span>Swing</span>
-        <input id="swing" type="range" min="0" max="60" value="0">
+        <select id="swing-grid" title="Auf welchem Raster der Shuffle sitzt">
+          <option value="16">16tel</option>
+          <option value="8">8tel</option>
+        </select>
+        <input id="swing" type="range" min="0" max="75" value="0">
         <output id="swing-value">0 %</output>
       </label>
 
@@ -155,9 +159,9 @@
 
   <footer>
     <p>Sequenzer, Live-Ansicht und Set-Script – der Plan erinnert, die Hand entscheidet.</p>
-    <p class="version">Blockwerk <b id="version">0.9.2</b> · Neon</p>
+    <p class="version">Blockwerk <b id="version">0.9.3</b> · Neon</p>
   </footer>
 
-  <script type="module" src="js/app.js?v=0.9.2"></script>
+  <script type="module" src="js/app.js?v=0.9.3"></script>
 </body>
 </html>

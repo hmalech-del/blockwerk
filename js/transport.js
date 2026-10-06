@@ -9,6 +9,18 @@ import { eventsAtStep } from './gesture.js';
 const INTERVAL_MS = 25;
 const LOOKAHEAD = 0.15;
 
+// Shuffle: jede zweite Einheit des Swing-Rasters kommt später. Auf dem
+// 16tel-Raster ist das der klassische MPC-Shuffle, auf dem 8tel-Raster der
+// Triolen-Shuffle – und der ist einem 8tel-Groove überhaupt erst anzuhören.
+// Ohne das Raster bliebe eine reine 8tel-Figur vom Swingregler unberührt,
+// weil sie nie auf einem ungeraden 16tel landet.
+export function swingFor(project, step, stepDur) {
+  if (!project.swing) return 0;
+  const unit = project.swingGrid === 8 ? 2 : 1;
+  const offbeat = Math.floor(step / unit) % 2 === 1;
+  return offbeat ? project.swing * stepDur * unit * 0.5 : 0;
+}
+
 export class Transport {
   constructor(engine, getProject, { onClipChange = () => {}, onBar = () => {} } = {}) {
     this.engine = engine;
@@ -92,8 +104,7 @@ export class Transport {
     if (step % quantize === 0) this.applyQueued();
 
     const stepDur = this.stepDuration();
-    // Swing verzögert die geraden Zwischenschritte – der klassische Shuffle.
-    const swingOffset = step % 2 ? project.swing * stepDur * 0.5 : 0;
+    const swingOffset = swingFor(project, step, stepDur);
 
     for (const track of project.tracks) {
       const clip = track.clips[track.clip];

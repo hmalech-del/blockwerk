@@ -742,6 +742,7 @@ function syncControls() {
   $('#tempo').value = Math.round(project.tempo);
   $('#swing').value = Math.round(project.swing * 100);
   $('#swing-value').textContent = `${Math.round(project.swing * 100)} %`;
+  $('#swing-grid').value = String(project.swingGrid || 16);
   $('#quantize').value = String(project.quantize);
   $('#scale').value = project.scale;
   $('#root').value = String(project.root);
@@ -814,6 +815,11 @@ $('#tap').addEventListener('click', () => {
 $('#swing').addEventListener('input', (e) => {
   project.swing = Number(e.target.value) / 100;
   $('#swing-value').textContent = `${e.target.value} %`;
+  save();
+});
+
+$('#swing-grid').addEventListener('change', (e) => {
+  project.swingGrid = Number(e.target.value) === 8 ? 8 : 16;
   save();
 });
 

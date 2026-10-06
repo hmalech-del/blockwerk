@@ -72,7 +72,7 @@ export class ScriptView {
         <table>
           <tr><td><code>tempo 124</code></td><td>Tempo setzen (40–240)</td></tr>
           <tr><td><code>key C minor</code></td><td>Tonart: minor, major, dorian, phrygian, pentatonic, chromatic</td></tr>
-          <tr><td><code>swing 12</code></td><td>Swing in Prozent (0–60)</td></tr>
+          <tr><td><code>swing 54 on 8</code></td><td>Shuffle in Prozent (0–75); <code>on 8</code> / <code>on 16</code> wählt das Raster</td></tr>
           <tr><td><code>bar 17</code></td><td>alles Folgende gilt ab diesem Takt</td></tr>
           <tr><td><code>kick = B</code></td><td>Clip einer Spur setzen (A–D)</td></tr>
           <tr><td><code>scene Hook</code></td><td>Szene aufrufen</td></tr>

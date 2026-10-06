@@ -17,7 +17,7 @@
 //   bar 49   end
 
 import { MODULES, EFFECTS, defaultParams } from './modules.js';
-import { CLIP_SLOTS, STEPS_PER_BAR, uid } from './project.js';
+import { CLIP_SLOTS, MAX_SWING, STEPS_PER_BAR, uid } from './project.js';
 import { parseSteps } from './pattern.js';
 import { equalSlices, detectTransients } from './samples.js';
 
@@ -40,7 +40,11 @@ const NOTE_CLASSES = {
 const RAMP = /^(.+?)\s+(-?[\d.]+)\s*(?:->|→)\s*(-?[\d.]+)(?:\s+over\s+([\d.]+)\s*bars?)?$/i;
 const ASSIGN = /^([^=]+?)\s*=\s*([a-dA-D])$/;
 const PATTERN = /^pattern\s+(.+?)\s+([a-dA-D])\s*=\s*(.+)$/i;
-const CONTROL = /^control\s+([1-8])\s+(.+?)(?:\s+(-?[\d.]+)\s+(-?[\d.]+))?(?:\s+as\s+(.+))?$/i;
+// Es gibt vier Live-Regler. Frueher stand hier [1-8]: „control 5 …“ lief
+// fehlerfrei durch, der Regler erschien – und war nach dem naechsten Laden weg,
+// weil das Modell nur vier Plaetze hat. Lieber sofort meckern als mitten im Set.
+const CONTROL = /^control\s+(\d+)\s+(.+?)(?:\s+(-?[\d.]+)\s+(-?[\d.]+))?(?:\s+as\s+(.+))?$/i;
+const MACRO_SLOTS = 4;
 
 // Namen vergleichen sich tolerant: Gross-/Kleinschreibung und Leerzeichen
 // zaehlen nicht mit. „spur1“, „Spur 1“ und „SPUR  1“ sind dieselbe Spur.
@@ -123,13 +127,33 @@ export function parseScript(text, project) {
     if (head === 'tempo') {
       const bpm = Number(words[1]);
       if (!(bpm >= 40 && bpm <= 240)) return fail(lineNo, `Tempo muss zwischen 40 und 240 liegen, nicht „${words[1] ?? ''}“.`);
+      // Stillschweigend den Rest der Zeile zu schlucken waere auf der Buehne
+      // boesartig: „tempo 88 -> 128 over 16 bars“ saehe aus wie eine Fahrt
+      // und waere in Wahrheit ein harter Sprung auf 88.
+      if (words.length > 2) {
+        return fail(lineNo, `„tempo“ nimmt nur eine Zahl – „${words.slice(2).join(' ')}“ ist zu viel. `
+          + `Tempofahrten gibt es (noch) nicht; setze das Tempo takt­weise in Stufen.`);
+      }
       return events.push({ bar, line: lineNo, type: 'tempo', value: bpm, text: command });
     }
 
+    // swing 54          – Shuffle in Prozent
+    // swing 54 on 8     – auf dem 8tel-Raster statt dem 16tel
     if (head === 'swing') {
       const percent = Number(String(words[1] ?? '').replace('%', ''));
-      if (!(percent >= 0 && percent <= 60)) return fail(lineNo, `Swing muss zwischen 0 und 60 (Prozent) liegen.`);
-      return events.push({ bar, line: lineNo, type: 'swing', value: percent / 100, text: command });
+      const maxPercent = Math.round(MAX_SWING * 100);
+      if (!(percent >= 0 && percent <= maxPercent)) {
+        return fail(lineNo, `Swing muss zwischen 0 und ${maxPercent} (Prozent) liegen.`);
+      }
+      let grid = null;
+      if (words.length > 2) {
+        const onGrid = /^on\s+(8|16)(?:tel|ths?)?$/i.exec(words.slice(2).join(' '));
+        if (!onGrid) {
+          return fail(lineNo, `Nach dem Swingwert geht nur noch „on 8“ oder „on 16“ – nicht „${words.slice(2).join(' ')}“.`);
+        }
+        grid = Number(onGrid[1]);
+      }
+      return events.push({ bar, line: lineNo, type: 'swing', value: percent / 100, grid, text: command });
     }
 
     if (head === 'key') {
@@ -139,6 +163,7 @@ export function parseScript(text, project) {
       const scaleWord = String(words[2] ?? 'minor').toLowerCase();
       const scale = SCALE_WORDS[scaleWord];
       if (!scale) return fail(lineNo, `Unbekannte Tonleiter „${words[2]}“ – erlaubt sind ${Object.keys(SCALE_WORDS).join(', ')}.`);
+      if (words.length > 3) return fail(lineNo, `„key“ nimmt Grundton und Tonleiter – „${words.slice(3).join(' ')}“ ist zu viel.`);
       const octave = match[2] === undefined ? 3 : Number(match[2]);
       const root = (octave + 1) * 12 + NOTE_CLASSES[match[1]];
       if (root < 12 || root > 96) return fail(lineNo, `Die Tonart liegt außerhalb des nutzbaren Bereichs.`);
@@ -209,12 +234,16 @@ export function parseScript(text, project) {
     // Live-Regler belegen: control 1 bass.filter.freq [300 4000] [as Name]
     if (head === 'control') {
       const match = CONTROL.exec(command);
-      if (!match) return fail(lineNo, `Erwartet: control <1-8> <ziel> [min max] [as Name]`);
+      if (!match) return fail(lineNo, `Erwartet: control <1-${MACRO_SLOTS}> <ziel> [min max] [as Name]`);
+      const slot = Number(match[1]);
+      if (!(slot >= 1 && slot <= MACRO_SLOTS)) {
+        return fail(lineNo, `Es gibt ${MACRO_SLOTS} Live-Regler – „${slot}“ liegt daneben.`);
+      }
       const path = match[2].trim();
       const target = resolveTarget(path, trackByName, willExist);
       if (target.error) return fail(lineNo, target.error);
       return events.push({
-        bar, line: lineNo, type: 'control', slot: Number(match[1]) - 1,
+        bar, line: lineNo, type: 'control', slot: slot - 1,
         path, target: target.value,
         min: match[3] === undefined ? null : Number(match[3]),
         max: match[4] === undefined ? null : Number(match[4]),
@@ -239,6 +268,7 @@ export function parseScript(text, project) {
     }
 
     if (head === 'end' || head === 'stop') {
+      if (words.length > 1) return fail(lineNo, `„${head}“ steht allein – „${words.slice(1).join(' ')}“ ist zu viel.`);
       return events.push({ bar, line: lineNo, type: 'end', text: command });
     }
 
@@ -395,6 +425,7 @@ export class ScriptRunner {
         break;
       case 'swing':
         project.swing = event.value;
+        if (event.grid) project.swingGrid = event.grid;
         break;
       case 'key':
         project.root = event.root;

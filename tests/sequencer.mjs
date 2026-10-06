@@ -102,10 +102,65 @@ check('Nur gestimmte Spuren folgen der Tonart', keys.folgtNurWerGestimmtIst,
 check('Das Schlagzeug ist von Haus aus ungestimmt', keys.gestimmt.slice(0, 3).every((v) => v === false),
   keys.gestimmt.join(','));
 
-// ------------------------------------------------------------ Timing
+// ------------------------------------------------------ Shuffle-Raster
+// Eine reine 8tel-Figur landet nie auf einem ungeraden 16tel. Auf dem
+// 16tel-Raster muss der Swingregler sie deshalb in Ruhe lassen – und auf dem
+// 8tel-Raster muss er sie bewegen, sonst ist der Regler fuer Hip-Hop blind.
 
 await page.click('#power');
 await page.waitForTimeout(200);
+
+const shuffle = await page.evaluate(async () => {
+  const { engine, transport, project } = window.blockwerk;
+  const p = project();
+  const hat = p.tracks[2];
+  const setzen = (t, pat) => {
+    t.clips[t.clip].steps = pat.split('').map((c) => ({ on: c === '.' ? 0 : 1, deg: 0 }));
+  };
+  // Fuer die Messung raeumen wir das Set leer und stellen es danach zurueck,
+  // damit die Timing-Tests weiter auf dem Demo-Set laufen.
+  const vorher = p.tracks.map((t) => t.clips[t.clip].steps);
+  for (const t of p.tracks) setzen(t, '................');
+
+  const messen = async (pat, swing, grid) => {
+    setzen(hat, pat);
+    p.tempo = 88; p.swing = swing; p.swingGrid = grid;
+    const log = [];
+    const orig = engine.noteOn.bind(engine);
+    engine.noteOn = (id, m, when) => { if (id === hat.id) log.push(when); return null; };
+    transport.start();
+    await new Promise((x) => setTimeout(x, 2000));
+    transport.stop();
+    engine.noteOn = orig;
+    const s = log.sort((a, b) => a - b);
+    const sechzehntel = 60 / 88 / 4;
+    return s.slice(1, 7).map((t, i) => +((t - s[i]) / sechzehntel).toFixed(2));
+  };
+
+  const r = {
+    achtelAuf16: await messen('x.x.x.x.x.x.x.x.', 0.54, 16),
+    achtelAuf8: await messen('x.x.x.x.x.x.x.x.', 0.54, 8),
+    sechzehntelAuf16: await messen('xxxxxxxxxxxxxxxx', 0.54, 16),
+    geradeAuf8: await messen('x.x.x.x.x.x.x.x.', 0, 8),
+  };
+  p.tracks.forEach((t, i) => { t.clips[t.clip].steps = vorher[i]; });
+  p.swing = 0; p.swingGrid = 16;
+  return r;
+});
+
+const paar = (a) => a.length >= 4 && a[0] !== a[1] && +(a[0] + a[1]).toFixed(2) === +(a[2] + a[3]).toFixed(2);
+check('Auf dem 16tel-Raster bleibt eine 8tel-Figur gerade',
+  shuffle.achtelAuf16.every((g) => Math.abs(g - 2) < 0.02), shuffle.achtelAuf16.join(' '));
+check('Auf dem 8tel-Raster schiebt der Shuffle die 8tel',
+  paar(shuffle.achtelAuf8) && shuffle.achtelAuf8[0] > 2.4,
+  shuffle.achtelAuf8.join(' '));
+check('Der 16tel-Shuffle bleibt, wie er war',
+  paar(shuffle.sechzehntelAuf16) && Math.abs(shuffle.sechzehntelAuf16[0] - 1.27) < 0.05,
+  shuffle.sechzehntelAuf16.join(' '));
+check('Ohne Swing ist auch das 8tel-Raster gerade',
+  shuffle.geradeAuf8.every((g) => Math.abs(g - 2) < 0.02), shuffle.geradeAuf8.join(' '));
+
+// ------------------------------------------------------------ Timing
 
 const timing = await page.evaluate(async () => {
   const { engine, transport, project } = window.blockwerk;

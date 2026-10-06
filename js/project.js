@@ -6,6 +6,10 @@ import { STEPS_PER_BAR, emptySteps, parseSteps } from './pattern.js';
 
 export const PROJECT_VERSION = 2;
 export const CLIP_SLOTS = ['A', 'B', 'C', 'D'];
+
+// Shuffle bis 75 %: der klassische Triolen-Shuffle liegt bei 67 %, und darüber
+// hinaus will man im Hip-Hop auch mal schleppen dürfen.
+export const MAX_SWING = 0.75;
 export { STEPS_PER_BAR };
 
 export const SCALES = {
@@ -125,6 +129,7 @@ export function makeProject(name = 'Neues Set') {
     name,
     tempo: 120,
     swing: 0,
+    swingGrid: 16,           // Auf welchem Raster der Shuffle sitzt: 8tel oder 16tel
     quantize: STEPS_PER_BAR, // Schritte, an denen Clipwechsel greifen
     root: 48,
     scale: 'minor',
@@ -313,7 +318,8 @@ export function normalizeProject(raw) {
 
   const project = makeProject(raw?.name || 'Set');
   project.tempo = Math.min(240, Math.max(40, Number(raw?.tempo) || 120));
-  project.swing = Math.min(0.6, Math.max(0, Number(raw?.swing) || 0));
+  project.swing = Math.min(MAX_SWING, Math.max(0, Number(raw?.swing) || 0));
+  project.swingGrid = raw?.swingGrid === 8 ? 8 : 16;
   project.quantize = [1, 4, 8, 16, 32, 64].includes(raw?.quantize) ? raw.quantize : STEPS_PER_BAR;
   project.root = Number.isInteger(raw?.root) ? Math.max(12, Math.min(84, raw.root)) : 48;
   project.scale = SCALES[raw?.scale] ? raw.scale : 'minor';

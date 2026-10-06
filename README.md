@@ -193,6 +193,12 @@ Streifen statt eines Rasters:
 - **Clips A–D** – je Spur vier Slots. Während der Wiedergabe wird ein Tipp
   *vorgemerkt* (der Chip blinkt) und erst an der eingestellten Grenze
   übernommen. Erneutes Tippen bestellt den Wechsel wieder ab.
+- **Swing** – Prozent *und* Raster. Der Shuffle verzögert jede zweite Einheit
+  des gewählten Rasters: auf **16tel** ist das der MPC-Shuffle (ein Groove aus
+  16teln atmet, eine reine 8tel-Figur bleibt absichtlich gerade), auf **8tel**
+  der Triolen-Shuffle, der einem 8tel-Groove überhaupt erst anzuhören ist.
+  Ohne die Rasterwahl wäre der Regler für jede Figur ohne 16tel blind. 67 %
+  ist der klassische Triolen-Shuffle, bis 75 % darf man schleppen.
 - **Wechsel** – legt diese Grenze fest: ¼ Takt bis 4 Takte oder „sofort".
 - **Takte** – jeder Clip ist 1, 2 oder 4 Takte lang; die Auswahl steht in der
   Ideen-Leiste unter dem Raster. Beim Verlängern wird das vorhandene Muster in
@@ -238,7 +244,7 @@ bar 33   end
 | --- | --- |
 | `tempo 124` | Tempo setzen (40–240) |
 | `key C minor` | Tonart; auch `key F#2 dorian`. Skalen: minor, major, dorian, phrygian, pentatonic, chromatic |
-| `swing 12` | Swing in Prozent (0–60) |
+| `swing 54 on 8` | Shuffle in Prozent (0–75); `on 8` / `on 16` wählt das Raster |
 | `bar 17` | alles Folgende gilt ab diesem Takt |
 | `kick = B` | Clip einer Spur setzen (A–D) |
 | `scene Hook` | Szene aufrufen |
