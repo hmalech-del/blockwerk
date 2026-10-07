@@ -1,5 +1,6 @@
 // Oberflächentest: Audio an/aus, Schritte setzen, Clips, Spuren, Klangkette,
 // Textmodus, Persistenz. Bricht bei jedem Konsolenfehler ab.
+import { stat } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { startServer } from './server.mjs';
 
@@ -304,15 +305,113 @@ const tape = await page.evaluate(() => ({
 }));
 check('Der Mitschnitt ist erreichbar', tape.knopf && tape.moeglich);
 
+await page.click('#play');
 await page.click('#tape');
-await page.waitForTimeout(500);
+await page.waitForTimeout(1200);
 const taping = await page.evaluate(() => ({
   laeuft: window.blockwerk.engine.taping,
   uhr: document.querySelector('#tape-time')?.hidden === false,
+  punkt: document.querySelector('#tape')?.classList.contains('taping'),
 }));
 check('Der Mitschnitt läuft und zeigt seine Laufzeit', taping.laeuft && taping.uhr,
   `läuft ${taping.laeuft}, Uhr sichtbar ${taping.uhr}`);
-await page.evaluate(() => window.blockwerk.engine.stopTape());
+
+// Der Mitschnitt darf nicht luegen. Haelt der Kontext an – Anruf, Tabwechsel –,
+// nahm das Band vorher weiter Stille auf: gemessen blieb taping true und die
+// Uhr stand bei 0:01, waehrend der rote Punkt blinkte. Jetzt endet der
+// Mitschnitt, gibt heraus, was er hat, und sagt es.
+const datei = page.waitForEvent('download', { timeout: 8000 }).then(
+  async (d) => ({ name: d.suggestedFilename(), pfad: await d.path() }), () => null);
+await page.evaluate(() => window.blockwerk.engine.ctx.suspend());
+await page.waitForTimeout(1200);
+const gerettet = await datei;
+const danach = await page.evaluate(() => ({
+  laeuft: window.blockwerk.engine.taping,
+  uhr: document.querySelector('#tape-time')?.hidden === false,
+  punkt: document.querySelector('#tape')?.classList.contains('taping'),
+  meldung: document.querySelector('#audio-state')?.hidden === false
+    ? document.querySelector('#audio-state').textContent : '',
+  zuendung: document.querySelector('#zuendung')?.dataset.state,
+}));
+check('Der rote Punkt leuchtet nie, ohne dass aufgenommen wird',
+  taping.punkt && !danach.laeuft && !danach.punkt && !danach.uhr,
+  `vorher Punkt ${taping.punkt}, danach läuft ${danach.laeuft}, Punkt ${danach.punkt}, Uhr ${danach.uhr}`);
+check('Das Aufgenommene wird als Datei herausgegeben',
+  !!gerettet && /\.webm$/.test(gerettet.name) && (await stat(gerettet.pfad)).size > 0,
+  gerettet ? `${gerettet.name}, ${(await stat(gerettet.pfad)).size} Bytes` : 'keine Datei');
+check('Die Unterbrechung meldet sich und die Zündung zeigt sie',
+  danach.meldung.includes('Mitschnitt') && danach.zuendung === 'gestoert',
+  `„${danach.meldung}", Zündung ${danach.zuendung}`);
+
+// Zurueck aus der Stoerung: ein Tipper auf die Zuendung, kein Neustart des Sets.
+const vorher = await page.evaluate(() => window.blockwerk.transport.step);
+await page.click('#power');
+await page.waitForTimeout(400);
+const zurueck = await page.evaluate(() => ({
+  ctx: window.blockwerk.engine.ctx.state,
+  playing: window.blockwerk.transport.playing,
+  step: window.blockwerk.transport.step,
+  zuendung: document.querySelector('#zuendung')?.dataset.state,
+}));
+check('„Audio weiter" holt den Ton zurück, ohne das Set von vorn zu beginnen',
+  zurueck.ctx === 'running' && zurueck.playing && zurueck.step >= vorher
+    && zurueck.zuendung === 'warm',
+  `Schritt ${vorher} → ${zurueck.step}, ${zurueck.zuendung}`);
+
+// Die Zusage gilt auch, wenn das Band nie ordentlich zu Ende kommt. Zwei Wege
+// dorthin, beide auf iOS denkbar, wenn der Stream mit dem Kontext verschwindet:
+// stop() wirft, weil der Recorder sich selbst beendet hat – oder onstop bleibt
+// einfach aus. Frueher haette das Versprechen in beiden Faellen gehangen, und
+// weil engine.taping schon vorher false ist, waeren roter Punkt und Uhr
+// stehengeblieben, waehrend nichts mehr aufnimmt.
+const abbruch = async (name, kaputterRecorder) => {
+  await page.click('#tape');
+  await page.waitForTimeout(1300);   // lang genug fuer den ersten Datenbrocken
+  const an = await page.evaluate(() => ({
+    laeuft: window.blockwerk.engine.taping,
+    punkt: document.querySelector('#tape').classList.contains('taping'),
+    uhr: document.querySelector('#tape-time').hidden === false,
+  }));
+  await page.evaluate(kaputterRecorder);
+  const t0 = Date.now();
+  await page.evaluate(() => window.blockwerk.engine.ctx.suspend());
+  await page.waitForFunction(
+    () => !window.blockwerk.engine.taping
+      && !document.querySelector('#tape').classList.contains('taping'),
+    null, { timeout: 4000 },
+  ).catch(() => {});
+  const dauer = Date.now() - t0;
+  const aus = await page.evaluate(() => ({
+    laeuft: window.blockwerk.engine.taping,
+    punkt: document.querySelector('#tape').classList.contains('taping'),
+    uhr: document.querySelector('#tape-time').hidden === false,
+    abgriff: window.__abgriff ?? null,
+  }));
+  check(`Punkt und Uhr gehen aus, auch wenn ${name}`,
+    an.laeuft && an.punkt && an.uhr && !aus.laeuft && !aus.punkt && !aus.uhr && dauer < 2000,
+    `vorher Punkt ${an.punkt}/Uhr ${an.uhr}, danach Punkt ${aus.punkt}/Uhr ${aus.uhr} nach ${dauer} ms`);
+  await page.click('#power');          // zurueck aus der Stoerung
+  await page.waitForTimeout(300);
+  return aus;
+};
+
+await abbruch('stop() wirft', () => {
+  window.blockwerk.engine.tape.rec = {
+    stop() { throw new DOMException('schon inactive', 'InvalidStateError'); },
+  };
+});
+
+// Zweiter Fall zusaetzlich mit Blick auf den Abgriff: er muss auch im
+// Fristpfad geloest werden, sonst haengt die Abzweigung am Analyser.
+const ohneOnstop = await abbruch('onstop nie feuert', () => {
+  const engine = window.blockwerk.engine;
+  window.__abgriff = 0;
+  const original = engine.analyser.disconnect.bind(engine.analyser);
+  engine.analyser.disconnect = (...args) => { window.__abgriff += 1; return original(...args); };
+  engine.tape.rec = { stop() { /* schweigt */ } };
+});
+check('Der Abgriff wird auch im Fristpfad gelöst', ohneOnstop.abgriff === 1,
+  `${ohneOnstop.abgriff}× disconnect`);
 
 await page.screenshot({ path: 'tests/screenshot.png', fullPage: true });
 await browser.close();

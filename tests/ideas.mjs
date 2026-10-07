@@ -196,8 +196,13 @@ const sliceRoll = await page.evaluate(() => {
 check('Slice-Folge landet im Raster', sliceRoll.ok && sliceRoll.on > 3, `${sliceRoll.on} Anschläge`);
 
 // Vorsingen läuft durch (das Testgerät liefert einen Dauerton, kein Beatbox)
-await page.click('#power');
-await page.waitForTimeout(150);
+// Hier stand ein Tipper auf #power, um Audio sicher laufen zu haben. Den Knopf
+// gibt es in diesem Zustand nicht mehr: die Zündung zeigt im warmen Zustand die
+// Taktanzeige. Audio läuft hier längst – die erste Geste auf der Seite hat es
+// gestartet. Also wird die Voraussetzung gemessen statt ein Knopf gedrückt.
+check('Audio läuft, bevor vorgesungen wird',
+  await page.evaluate(() => window.blockwerk.engine.running
+    && document.querySelector('#zuendung').dataset.state === 'warm'));
 await page.click('[data-act="beatbox"]');
 await page.waitForTimeout(600);
 check('Vorsingen startet den Transport und hört zu',

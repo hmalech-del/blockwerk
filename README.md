@@ -185,7 +185,14 @@ Streifen statt eines Rasters:
 
 ## Bedienung
 
-- **Audio starten** – Browser erlauben Ton erst nach einer Berührung; die erste Geste irgendwo auf der Seite genügt.
+- **Zündung** – der erste Platz der Transportleiste, ein Kasten fester Breite.
+  Vor dem ersten Ton steht dort **Audio starten** (Browser erlauben Ton erst
+  nach einer Berührung; die erste Geste irgendwo auf der Seite genügt). Läuft
+  Audio, steht dort die **Taktanzeige** – der Knopf ist weg, weil es nichts
+  mehr zu starten gibt und ein Tipper sonst das laufende Set beenden würde.
+  Hat ein Anruf oder ein Tabwechsel den Ton angehalten, steht dort **Audio
+  weiter**; ein laufender Mitschnitt endet dann und wird herausgegeben.
+  Still wird es mit **Panik**, angehalten mit **Stopp**.
 - **Start / Stopp** – Schaltfläche oder Leertaste.
 - **Schritte setzen** – Tippen schaltet durch *aus → an → Akzent → Geist*.
   **Senkrechtes** Ziehen verschiebt die Tonhöhe in Skalenstufen (die Zahl im
