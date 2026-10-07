@@ -120,17 +120,56 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   outline-offset: 2px;
 }
 
+/* Die Zündung hält den ersten Platz der Leiste. Die feste Breite sitzt am
+   KASTEN, nicht an seinem Inhalt: "Audio starten", die Taktanzeige und
+   "Audio weiter" sind unterschiedlich lang – ohne das springt beim ersten
+   Tippen die halbe Leiste zur Seite und der Klick landet auf dem
+   Nachbarknopf. Die Höhe steht aus demselben Grund fest, sonst ändert ein
+   Zustandswechsel die Zeilenhöhe der ganzen Kopfzeile. */
+.zuendung {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  width: 182px;
+  height: 36px;
+  /* Vierstellige Takte schieben den Kasten nicht auf, sie werden kleiner. */
+  overflow: hidden;
+}
+.zuendung > * { width: 100%; height: 100%; margin: 0; }
+.zuendung > [hidden] { display: none; }
+
+/* Warm: kein Knopf, nur die Zahl. Daran ist nichts anzufassen. */
+.zuendung .position { pointer-events: none; gap: 6px; }
+.position-label { color: var(--muted); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.zuendung #position { font-size: 17px; font-weight: 600; color: var(--text); }
+.zuendung.vierstellig #position { font-size: 13px; }
+
+/* Geschlossen: eine Platte, kein Knopf – hier ist nichts mehr zu starten. */
+.zuendung-plate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
 .power {
-  /* Feste Breite: "Audio starten" und "Audio läuft" sind unterschiedlich
-     lang – ohne das springt beim ersten Tippen die halbe Leiste zur Seite
-     und der Klick landet auf dem Nachbarknopf. */
-  min-width: 146px;
   background: linear-gradient(140deg, var(--accent), var(--accent-2));
   color: #0d0f14;
   font-weight: 600;
   border: none;
 }
-.power.on { background: var(--panel); color: var(--accent); border: 1px solid var(--accent); }
+/* Gestört ist der einzige Zustand, in dem der Knopf um Aufmerksamkeit bittet. */
+.power.stoerung {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  animation: blink 1.4s steps(2) infinite;
+}
 .ghost { background: transparent; color: var(--muted); }
 .ghost:hover { color: var(--text); }
 
@@ -1224,11 +1263,17 @@ button:hover {
   font-size: 13px;
   box-shadow: var(--glow) rgba(45, 226, 255, .5);
 }
-.power.on {
+.power.stoerung {
   background: transparent;
-  color: var(--neon);
-  border: 1px solid var(--neon);
-  box-shadow: var(--glow) rgba(45, 226, 255, .3), inset 0 0 18px rgba(45, 226, 255, .12);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  box-shadow: var(--glow) rgba(255, 107, 122, .4);
+}
+.zuendung-plate {
+  background: linear-gradient(180deg, rgba(24, 34, 79, .9), rgba(12, 18, 48, .92));
+  border-color: rgba(122, 107, 255, .35);
+  text-transform: uppercase;
+  letter-spacing: .06em;
 }
 .play {
   text-transform: uppercase;
@@ -1386,16 +1431,18 @@ input[type="range"]::-webkit-slider-runnable-track { border-color: rgba(122, 107
 /* Versalien und Sperrung machen die Beschriftungen breiter – die festen
    Breiten muessen mitwachsen, sonst springt die Leiste beim ersten Tippen
    wieder zur Seite (und der Klick landet daneben). */
-.power { min-width: 182px; }
 .play { min-width: 124px; }
 @media (max-width: 1700px) {
   .play { min-width: 116px; }
 }
 
 
-/* Unter 1340 px wird die Beschriftung kleiner statt die Leiste zweizeilig. */
+/* Unter 1340 px wird die Beschriftung kleiner statt die Leiste zweizeilig.
+   Der Kasten der Zündung wird schmaler, sein Inhalt folgt – die Zusage ist,
+   dass alle drei Zustände dieselbe Aussenbreite haben. */
 @media (max-width: 1340px) {
-  .power { min-width: 162px; font-size: 11px; letter-spacing: .06em; }
+  .zuendung { width: 162px; }
+  .power { font-size: 11px; letter-spacing: .06em; }
   .play { min-width: 104px; font-size: 12px; }
 }
 

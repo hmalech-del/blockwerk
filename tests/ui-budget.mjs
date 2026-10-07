@@ -93,6 +93,57 @@ const tiny = await page.evaluate(() => {
 });
 check('Jedes Ziel ist im Dunkeln treffbar', tiny.length === 0, tiny.slice(0, 4).join(' · '));
 
+// Bis hier wurde nur der kalte Zustand gezaehlt – vor der ersten Geste. Der
+// Zustand, in dem gespielt wird, ist der warme, und genau der gehoert gezaehlt:
+// die Zuendung zeigt dann die Taktanzeige statt des Startknopfes, also ein
+// Bedienelement weniger. Ein Knopf, der nur sagt, dass alles laeuft, kostet
+// Platz und Aufmerksamkeit und bringt nichts.
+await page.click('[data-view="live"]');
+await page.click('#play');
+await page.waitForTimeout(300);
+const warm = await page.evaluate(() => window.blockwerk.engine.running);
+const topbarWarm = await countIn('.topbar');
+check('Kopfleiste ist warm kleiner als kalt', warm && topbarWarm.total === topbar.total - 1,
+  `warm ${topbarWarm.total} von ${TOPBAR_BUDGET}, kalt ${topbar.total}`);
+check('Kopfleiste bleibt auch warm im Budget', topbarWarm.total <= TOPBAR_BUDGET,
+  `${topbarWarm.total} von ${TOPBAR_BUDGET} · ${Object.entries(topbarWarm.byKind).map(([k, v]) => `${k} ${v}`).join(', ')}`);
+
+// Die harte Zusage der Zuendung: ein Platz, drei Zustaende, EINE Breite. Wenn
+// der Kasten beim Zustandswechsel atmet, wandert #play unter dem Finger weg –
+// und der Tipper, der das Set starten sollte, beendet es.
+const ZUSTAENDE = ['kalt', 'warm', 'gestoert', 'geschlossen'];
+for (const width of [390, 820, 1024, 1440, 1920]) {
+  const probe = await browser.newPage({ viewport: { width, height: 800 } });
+  await probe.goto(server.url, { waitUntil: 'networkidle' });
+  await probe.evaluate(() => localStorage.clear());
+  await probe.reload({ waitUntil: 'networkidle' });
+  const breite = async () => probe.evaluate(() => {
+    const el = document.querySelector('.zuendung');
+    return { zustand: el.dataset.state, w: el.getBoundingClientRect().width };
+  });
+  const gemessen = [await breite()];
+  await probe.click('#play');                                           // -> warm
+  await probe.waitForTimeout(250);
+  gemessen.push(await breite());
+  await probe.evaluate(() => window.blockwerk.engine.ctx.suspend());    // -> gestoert
+  await probe.waitForTimeout(250);
+  gemessen.push(await breite());
+  await probe.evaluate(() => {                                          // -> geschlossen
+    window.blockwerk.transport.stop();
+    return window.blockwerk.engine.ctx.close();
+  });
+  await probe.waitForTimeout(250);
+  gemessen.push(await breite());
+  await probe.close();
+
+  const reihenfolge = gemessen.map((g) => g.zustand).join(' → ');
+  const spanne = Math.max(...gemessen.map((g) => g.w)) - Math.min(...gemessen.map((g) => g.w));
+  const soll = width <= 1340 ? 162 : 182;
+  check(`Zündung hält ihre Breite bei ${width} px`,
+    spanne <= 1 && reihenfolge === ZUSTAENDE.join(' → ') && Math.abs(gemessen[0].w - soll) <= 1,
+    `${gemessen.map((g) => Math.round(g.w)).join('/')} px (${reihenfolge}), Soll ${soll}, Spanne ${spanne.toFixed(1)} px`);
+}
+
 console.log('\nBudget je Ansicht:');
 for (const r of report) {
   const kinds = Object.entries(r.byKind || {}).map(([k, v]) => `${k} ${v}`).join(', ');

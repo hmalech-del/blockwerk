@@ -36,7 +36,6 @@ let recorder = null;
 let selectedSampleId = null;
 let project = loadProject();
 let selectedId = project.tracks[0]?.id || null;
-let userSuspended = false;
 
 let currentView = 'live';
 
@@ -187,7 +186,6 @@ const sequencer = new Sequencer($('#sequencer'), {
   },
   onPreview: (track, step) => {
     ensureAudio();
-    if (userSuspended) return;
     const midi = trackMidi(project, track, step.deg);
     engine.noteOn(track.id, midi, undefined, { dur: 0.2, velocity: step.on === 2 ? 1 : 0.7 });
   },
@@ -632,7 +630,7 @@ const gestureField = new GestureField({
     save();
   },
   onTrigger: (track, deg, y) => {
-    if (!track || userSuspended) return;
+    if (!track) return;
     ensureAudio();
     applyGestureValue(track, y);
     const midi = trackMidi(project, track, deg);
@@ -697,7 +695,6 @@ const scriptView = new ScriptView($('#script'), {
 
 const keyboard = new Keyboard($('#keyboard'), {
   onNoteOn: (midi) => {
-    if (userSuspended) return;
     ensureAudio();
     const track = selectedTrack();
     if (track) engine.noteOn(track.id, midi + track.octave * 12);
@@ -712,10 +709,10 @@ const keyboard = new Keyboard($('#keyboard'), {
 // ----------------------------------------------------------------- Audio
 
 async function ensureAudio() {
-  if (userSuspended || engine.running) return;
+  if (engine.running) return;
   await engine.start();
   await restoreSamples();
-  updatePower();
+  updateZuendung();
 }
 
 // Die Wellenformen liegen in IndexedDB und brauchen einen AudioContext –
@@ -731,37 +728,79 @@ async function restoreSamples() {
   if (count) samplerView.render();
 }
 
-function updatePower() {
+// Der Zustand der Zündung hat genau eine Quelle: den AudioContext. Er wird
+// nicht gespeichert, weil er nichts über das Set sagt.
+// „kalt" = noch nie Ton, „gestört" = Anruf oder Tabwechsel hat ihn angehalten.
+function zuendungState() {
+  const state = engine.ctx?.state;
+  if (state === 'closed') return 'geschlossen';
+  if (engine.running) return 'warm';
+  if (state === 'suspended' || state === 'interrupted') return 'gestoert';
+  return 'kalt';
+}
+
+// Ein Platz, drei Zustände – und nur eines davon ist gerendert. Alle Wege in
+// die Oberfläche laufen hier zusammen, damit keine zweite Wahrheit entsteht.
+function updateZuendung() {
+  const box = $('#zuendung');
   const btn = $('#power');
-  btn.classList.toggle('on', engine.running);
-  btn.textContent = engine.running ? 'Audio läuft' : 'Audio starten';
+  const takt = box?.querySelector('.position');
+  const platte = box?.querySelector('.zuendung-plate');
+  if (!box || !btn || !takt || !platte) return;
+  const state = zuendungState();
+
+  btn.hidden = state === 'warm' || state === 'geschlossen';
+  takt.hidden = state !== 'warm';
+  platte.hidden = state !== 'geschlossen';
+  // „Audio läuft" entfällt: ein Knopf, der nur sagt, dass alles in Ordnung
+  // ist, hat auf dem größten Platz der Leiste nichts verloren.
+  btn.textContent = state === 'gestoert' ? 'Audio weiter' : 'Audio starten';
+  btn.classList.toggle('stoerung', state === 'gestoert');
+  box.dataset.state = state;
   updateAudioState();
 }
 
-// Sagt im Zweifel, woran es liegt: Safari kennt zusätzlich "interrupted",
-// wenn ein Anruf oder eine andere App die Ausgabe übernommen hat.
+// Der Chip sagt nur noch, was die Zündung nicht sagen kann. „suspended" und
+// „interrupted" stehen jetzt dort, wo auch der Weg zurück liegt.
 function updateAudioState() {
   const el = $('#audio-state');
   if (!el) return;
-  const state = engine.ctx?.state;
-  const labels = {
-    running: '',
-    suspended: 'Audio pausiert – antippen',
-    interrupted: 'Audio unterbrochen – antippen',
-    closed: 'Audio geschlossen',
-  };
-  // Vor der ersten Geste gibt es nichts zu melden – der Power-Knopf sagt es.
-  const text = state ? (labels[state] ?? state) : '';
-  el.textContent = text;
-  el.hidden = !text;
+  const zu = engine.ctx?.state === 'closed';
+  // Ein geschlossener Kontext ist endgültig und verdrängt jede Meldung, die
+  // von selbst wieder gehen würde.
+  if (!zu && hintTimer) return;
+  if (zu) { clearTimeout(hintTimer); hintTimer = null; }
+  el.classList.remove('neutral');
+  el.textContent = zu ? 'Audio geschlossen' : '';
+  el.hidden = !zu;
 }
 
-engine.onStateChange = () => updatePower();
+// Eine Meldung, die von selbst wieder geht. Testton-Hinweis und abgebrochener
+// Mitschnitt teilen sich den Platz – zwei Chips nebeneinander wären Lärm.
+let hintTimer = null;
+function showAudioHint(text, { neutral = false, seconds = 6 } = {}) {
+  const el = $('#audio-state');
+  if (!el) return;
+  el.hidden = false;
+  el.classList.toggle('neutral', neutral);
+  el.textContent = text;
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => {
+    hintTimer = null;
+    updateAudioState();
+  }, seconds * 1000);
+}
+
+engine.onStateChange = () => {
+  updateZuendung();
+  // Ein Mitschnitt überlebt den Stillstand des Kontextes nicht.
+  if (!engine.running) rescueTape();
+};
 
 // iOS unterbricht den Kontext bei Anrufen und beim Wegschalten.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible' || userSuspended || !engine.ctx) return;
-  if (engine.ctx.state !== 'running') engine.start().then(updatePower).catch(() => {});
+  if (document.visibilityState !== 'visible' || !engine.ctx) return;
+  if (engine.ctx.state !== 'running') engine.start().then(updateZuendung).catch(() => {});
 });
 
 function useProject(next) {
@@ -807,24 +846,18 @@ renderPalette($('#palette'), (block) => {
   save();
 });
 
+// Die Zündung kennt nur eine Richtung: an. Ein laufendes Set darf nicht an
+// einem einzigen Tipper hängen – zum Stillmachen gibt es #panic, zum Anhalten
+// #play. Im warmen Zustand ist der Knopf gar nicht da.
 $('#power').addEventListener('click', async () => {
-  if (engine.running) {
-    transport.stop();
-    engine.panic();
-    userSuspended = true;
-    await engine.ctx.suspend();
-  } else {
-    userSuspended = false;
-    await ensureAudio();
-  }
-  updatePower();
+  await ensureAudio();
+  updateZuendung();
 });
 
 $('#play').addEventListener('click', async () => {
   if (transport.playing) {
     transport.stop();
   } else {
-    userSuspended = false;
     await ensureAudio();
     script.reset();
     transport.start();
@@ -912,21 +945,48 @@ function updateTape() {
   }
 }
 
+// Ein Weg aus der App heraus, egal ob von Hand beendet oder vom Kontext
+// abgewürgt. Zwei Pfade divergieren, und der zweite wäre der ungetestete.
+function offerTape(blob) {
+  if (!blob) return false;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  a.href = url;
+  a.download = `${(project.name || 'set').replace(/[^\w-]+/g, '_')}-${stamp}.webm`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return true;
+}
+
+// Steht der Kontext, nimmt der Mitschnitt Stille auf – und der rote Punkt
+// behauptet weiter, es liefe. Gemessen: nach einem Tipper blieb taping true
+// und die Uhr stand bei 0:01. Lieber ein Mitschnitt, der endet und sagt, dass
+// er endet, als einer, der lügt. Der rote Punkt leuchtet nie, ohne dass
+// aufgenommen wird.
+let rescuing = false;
+async function rescueTape() {
+  if (!engine.taping || rescuing) return;
+  rescuing = true;
+  try {
+    const blob = await engine.stopTape();
+    updateTape();
+    showAudioHint(offerTape(blob)
+      ? 'Audio unterbrochen – Mitschnitt beendet und gesichert.'
+      : 'Audio unterbrochen – Mitschnitt beendet, es war nichts aufgenommen.',
+    { seconds: 10 });
+  } finally {
+    rescuing = false;
+  }
+}
+
 $('#tape').addEventListener('click', async () => {
   if (engine.taping) {
     const blob = await engine.stopTape();
     updateTape();
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-    a.href = url;
-    a.download = `${(project.name || 'set').replace(/[^\w-]+/g, '_')}-${stamp}.webm`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    offerTape(blob);
     return;
   }
-  userSuspended = false;
   await ensureAudio();
   if (!engine.startTape()) {
     $('#tape').querySelector('.util-text').textContent = 'kein Mitschnitt';
@@ -987,23 +1047,13 @@ $('#midi').addEventListener('click', async () => {
 // Soundcheck: sagt in einem Tipp, ob überhaupt Ton aus dem Gerät kommt.
 // Bleibt es still, ist auf iOS fast immer der Stummschalter am Gehäuse schuld –
 // genau dann ist der Hinweis nützlich, vorher wäre er nur Deko.
-let hintTimer = null;
 $('#test-tone').addEventListener('click', async () => {
-  userSuspended = false;
   await ensureAudio();
   engine.testTone();
-  updatePower();
-
-  const el = $('#audio-state');
-  if (engine.running && el) {
-    el.hidden = false;
-    el.classList.add('neutral');
-    el.textContent = 'Testton gespielt – nichts gehört? Stummschalter und Lautstärke am Gerät prüfen.';
-    clearTimeout(hintTimer);
-    hintTimer = setTimeout(() => {
-      el.classList.remove('neutral');
-      updateAudioState();
-    }, 6000);
+  updateZuendung();
+  if (engine.running) {
+    showAudioHint('Testton gespielt – nichts gehört? Stummschalter und Lautstärke am Gerät prüfen.',
+      { neutral: true });
   }
 });
 $('#oct-down').addEventListener('click', () => keyboard.shift(-1));
@@ -1095,10 +1145,9 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Erste Nutzergeste irgendwo auf der Seite startet den AudioContext – außer
-// auf dem Power-Button, der seinen Zustand selbst umschaltet.
-function firstGesture(e) {
-  if (e.target?.closest?.('#power')) return;
+// Erste Nutzergeste irgendwo auf der Seite startet den AudioContext. Die
+// Zündung braucht hier keine Ausnahme mehr: sie startet dasselbe.
+function firstGesture() {
   window.removeEventListener('pointerdown', firstGesture);
   window.removeEventListener('keydown', firstGesture);
   ensureAudio();
@@ -1131,7 +1180,7 @@ mountField();
 rack.render();
 script.compile();
 scriptView.render();
-updatePower();
+updateZuendung();
 updatePlay();
 
 window.blockwerk = {
@@ -1172,9 +1221,12 @@ let frameCount = 0;
   const bar = $('#position');
   if (bar) {
     const pos = transport.position();
-    bar.textContent = transport.playing
-      ? `${Math.floor(pos / 16) + 1}.${Math.floor((pos % 16) / 4) + 1}`
-      : '–';
+    // Takt und Zählzeit, kein Schrittzähler: bei Tempo 240 flackerte die
+    // Zahl sonst 16-mal je Sekunde und wäre nicht mehr zu lesen.
+    const takt = Math.floor(pos / 16) + 1;
+    bar.textContent = transport.playing ? `${takt}.${Math.floor((pos % 16) / 4) + 1}` : '–';
+    // Ab vier Stellen eine Typstufe kleiner – der Kasten wächst nie mit.
+    $('#zuendung')?.classList.toggle('vierstellig', transport.playing && takt >= 1000);
     $('#quantize-ring').style.setProperty('--phase', transport.playing ? transport.quantizePhase() : 0);
   }
   requestAnimationFrame(frame);

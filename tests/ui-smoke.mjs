@@ -1,5 +1,6 @@
 // Oberflächentest: Audio an/aus, Schritte setzen, Clips, Spuren, Klangkette,
 // Textmodus, Persistenz. Bricht bei jedem Konsolenfehler ab.
+import { stat } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { startServer } from './server.mjs';
 
@@ -304,15 +305,58 @@ const tape = await page.evaluate(() => ({
 }));
 check('Der Mitschnitt ist erreichbar', tape.knopf && tape.moeglich);
 
+await page.click('#play');
 await page.click('#tape');
-await page.waitForTimeout(500);
+await page.waitForTimeout(1200);
 const taping = await page.evaluate(() => ({
   laeuft: window.blockwerk.engine.taping,
   uhr: document.querySelector('#tape-time')?.hidden === false,
+  punkt: document.querySelector('#tape')?.classList.contains('taping'),
 }));
 check('Der Mitschnitt läuft und zeigt seine Laufzeit', taping.laeuft && taping.uhr,
   `läuft ${taping.laeuft}, Uhr sichtbar ${taping.uhr}`);
-await page.evaluate(() => window.blockwerk.engine.stopTape());
+
+// Der Mitschnitt darf nicht luegen. Haelt der Kontext an – Anruf, Tabwechsel –,
+// nahm das Band vorher weiter Stille auf: gemessen blieb taping true und die
+// Uhr stand bei 0:01, waehrend der rote Punkt blinkte. Jetzt endet der
+// Mitschnitt, gibt heraus, was er hat, und sagt es.
+const datei = page.waitForEvent('download', { timeout: 8000 }).then(
+  async (d) => ({ name: d.suggestedFilename(), pfad: await d.path() }), () => null);
+await page.evaluate(() => window.blockwerk.engine.ctx.suspend());
+await page.waitForTimeout(1200);
+const gerettet = await datei;
+const danach = await page.evaluate(() => ({
+  laeuft: window.blockwerk.engine.taping,
+  uhr: document.querySelector('#tape-time')?.hidden === false,
+  punkt: document.querySelector('#tape')?.classList.contains('taping'),
+  meldung: document.querySelector('#audio-state')?.hidden === false
+    ? document.querySelector('#audio-state').textContent : '',
+  zuendung: document.querySelector('#zuendung')?.dataset.state,
+}));
+check('Der rote Punkt leuchtet nie, ohne dass aufgenommen wird',
+  taping.punkt && !danach.laeuft && !danach.punkt && !danach.uhr,
+  `vorher Punkt ${taping.punkt}, danach läuft ${danach.laeuft}, Punkt ${danach.punkt}, Uhr ${danach.uhr}`);
+check('Das Aufgenommene wird als Datei herausgegeben',
+  !!gerettet && /\.webm$/.test(gerettet.name) && (await stat(gerettet.pfad)).size > 0,
+  gerettet ? `${gerettet.name}, ${(await stat(gerettet.pfad)).size} Bytes` : 'keine Datei');
+check('Die Unterbrechung meldet sich und die Zündung zeigt sie',
+  danach.meldung.includes('Mitschnitt') && danach.zuendung === 'gestoert',
+  `„${danach.meldung}", Zündung ${danach.zuendung}`);
+
+// Zurueck aus der Stoerung: ein Tipper auf die Zuendung, kein Neustart des Sets.
+const vorher = await page.evaluate(() => window.blockwerk.transport.step);
+await page.click('#power');
+await page.waitForTimeout(400);
+const zurueck = await page.evaluate(() => ({
+  ctx: window.blockwerk.engine.ctx.state,
+  playing: window.blockwerk.transport.playing,
+  step: window.blockwerk.transport.step,
+  zuendung: document.querySelector('#zuendung')?.dataset.state,
+}));
+check('„Audio weiter" holt den Ton zurück, ohne das Set von vorn zu beginnen',
+  zurueck.ctx === 'running' && zurueck.playing && zurueck.step >= vorher
+    && zurueck.zuendung === 'warm',
+  `Schritt ${vorher} → ${zurueck.step}, ${zurueck.zuendung}`);
 
 await page.screenshot({ path: 'tests/screenshot.png', fullPage: true });
 await browser.close();

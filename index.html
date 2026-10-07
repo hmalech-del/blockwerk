@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Blockwerk – modularer Klangbaukasten</title>
   <meta name="description" content="Modulare Web-Audio-App: Sequenzer, Drum-Loops und frei verkettbare Klangblöcke – gebaut für Tablet und Laptop.">
-  <link rel="stylesheet" href="css/style.css?v=0.10.1">
+  <link rel="stylesheet" href="css/style.css?v=0.11.0">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>▦</text></svg>">
 </head>
 <body>
@@ -13,14 +13,21 @@
 
   <header class="topbar">
     <div class="transport">
-      <button id="power" class="power">Audio starten</button>
+      <!-- Die Zündung: ein Platz, drei Zustände. Genau eines der drei Kinder
+           ist gerendert, die anderen sind hidden – nicht nur per CSS weg,
+           sonst zählt tests/ui-budget.mjs sie mit. -->
+      <div class="zuendung" id="zuendung">
+        <button id="power" class="power">Audio starten</button>
+        <div class="position" hidden>
+          <span id="quantize-ring" class="ring" aria-hidden="true"></span>
+          <span class="position-label">Takt</span>
+          <output id="position" title="Takt.Zählzeit">–</output>
+        </div>
+        <div class="zuendung-plate" hidden>Audio geschlossen</div>
+      </div>
 
       <div class="play-group">
         <button id="play" class="play">▶ Start</button>
-        <div class="position">
-          <span id="quantize-ring" class="ring" aria-hidden="true"></span>
-          <output id="position" title="Takt.Zählzeit">–</output>
-        </div>
       </div>
 
       <label class="ctrl">
@@ -170,9 +177,9 @@
 
   <footer>
     <p>Sequenzer, Live-Ansicht und Set-Script – der Plan erinnert, die Hand entscheidet.</p>
-    <p class="version">Blockwerk <b id="version">0.10.1</b> · Neon</p>
+    <p class="version">Blockwerk <b id="version">0.11.0</b> · Neon</p>
   </footer>
 
-  <script type="module" src="js/app.js?v=0.10.1"></script>
+  <script type="module" src="js/app.js?v=0.11.0"></script>
 </body>
 </html>
