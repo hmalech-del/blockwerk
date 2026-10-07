@@ -6,6 +6,12 @@ import { sliceBounds } from './samples.js';
 
 export const MAX_VOICES_PER_TRACK = 8;
 
+// Frist, die ein Recorder zum ordentlichen Beenden bekommt. Ein normales
+// stop() meldet sich im selben oder nächsten Frame zurück; 400 ms sind weit
+// mehr, als es je braucht, und kurz genug, dass niemand davor sitzt und
+// wartet. Siehe stopTape().
+const TAPE_STOP_FRIST = 400;
+
 // Der Master ist im Modell keine Spur, braucht aber dieselben Griffe.
 export const MASTER = 'master';
 
@@ -338,16 +344,39 @@ export class Engine {
     return this.tape ? this.ctx.currentTime - this.tape.startedAt : 0;
   }
 
+  // Dieses Versprechen löst unter allen Umständen auf. Zwei Wege, auf denen
+  // ein Recorder nicht mitspielt: Hat er sich selbst beendet – auf iOS
+  // verschwindet der Stream mit dem Kontext –, wirft stop() ein
+  // InvalidStateError; und bleibt sein onstop aus, käme nie eine Antwort.
+  // Beides sähe gleich aus: taping ist sofort false, aber der Aufrufer kommt
+  // nie dazu, roten Punkt und Uhr zu löschen. Dann behauptet die Oberfläche
+  // weiter, es laufe ein Mitschnitt – genau die Lüge, gegen die der Abbruch
+  // gebaut ist. Deshalb endet der Mitschnitt hier in jedem Fall.
   stopTape() {
     const tape = this.tape;
     if (!tape) return Promise.resolve(null);
     this.tape = null;
     return new Promise((resolve) => {
-      tape.rec.onstop = () => {
+      let beendet = false;
+      let frist = null;
+      const finish = () => {
+        if (beendet) return;           // onstop nach der Frist ändert nichts mehr
+        beendet = true;
+        clearTimeout(frist);
+        // Der Abgriff muss auf jedem Weg weg, sonst hängt er am Analyser.
         try { this.analyser.disconnect(tape.dest); } catch (e) { /* egal */ }
         resolve(tape.chunks.length ? new Blob(tape.chunks, { type: tape.type }) : null);
       };
-      tape.rec.stop();
+      tape.rec.onstop = finish;
+      tape.rec.onerror = finish;
+      // Lieber ein unvollständiges Band in der Hand als ein hängender
+      // Zustand: die Aufnahme ist in beiden Fällen ohnehin zu Ende.
+      frist = setTimeout(finish, TAPE_STOP_FRIST);
+      try {
+        tape.rec.stop();
+      } catch (e) {
+        finish();                      // war schon inactive – was da ist, ist da
+      }
     });
   }
 

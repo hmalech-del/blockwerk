@@ -358,6 +358,61 @@ check('„Audio weiter" holt den Ton zurück, ohne das Set von vorn zu beginnen'
     && zurueck.zuendung === 'warm',
   `Schritt ${vorher} → ${zurueck.step}, ${zurueck.zuendung}`);
 
+// Die Zusage gilt auch, wenn das Band nie ordentlich zu Ende kommt. Zwei Wege
+// dorthin, beide auf iOS denkbar, wenn der Stream mit dem Kontext verschwindet:
+// stop() wirft, weil der Recorder sich selbst beendet hat – oder onstop bleibt
+// einfach aus. Frueher haette das Versprechen in beiden Faellen gehangen, und
+// weil engine.taping schon vorher false ist, waeren roter Punkt und Uhr
+// stehengeblieben, waehrend nichts mehr aufnimmt.
+const abbruch = async (name, kaputterRecorder) => {
+  await page.click('#tape');
+  await page.waitForTimeout(1300);   // lang genug fuer den ersten Datenbrocken
+  const an = await page.evaluate(() => ({
+    laeuft: window.blockwerk.engine.taping,
+    punkt: document.querySelector('#tape').classList.contains('taping'),
+    uhr: document.querySelector('#tape-time').hidden === false,
+  }));
+  await page.evaluate(kaputterRecorder);
+  const t0 = Date.now();
+  await page.evaluate(() => window.blockwerk.engine.ctx.suspend());
+  await page.waitForFunction(
+    () => !window.blockwerk.engine.taping
+      && !document.querySelector('#tape').classList.contains('taping'),
+    null, { timeout: 4000 },
+  ).catch(() => {});
+  const dauer = Date.now() - t0;
+  const aus = await page.evaluate(() => ({
+    laeuft: window.blockwerk.engine.taping,
+    punkt: document.querySelector('#tape').classList.contains('taping'),
+    uhr: document.querySelector('#tape-time').hidden === false,
+    abgriff: window.__abgriff ?? null,
+  }));
+  check(`Punkt und Uhr gehen aus, auch wenn ${name}`,
+    an.laeuft && an.punkt && an.uhr && !aus.laeuft && !aus.punkt && !aus.uhr && dauer < 2000,
+    `vorher Punkt ${an.punkt}/Uhr ${an.uhr}, danach Punkt ${aus.punkt}/Uhr ${aus.uhr} nach ${dauer} ms`);
+  await page.click('#power');          // zurueck aus der Stoerung
+  await page.waitForTimeout(300);
+  return aus;
+};
+
+await abbruch('stop() wirft', () => {
+  window.blockwerk.engine.tape.rec = {
+    stop() { throw new DOMException('schon inactive', 'InvalidStateError'); },
+  };
+});
+
+// Zweiter Fall zusaetzlich mit Blick auf den Abgriff: er muss auch im
+// Fristpfad geloest werden, sonst haengt die Abzweigung am Analyser.
+const ohneOnstop = await abbruch('onstop nie feuert', () => {
+  const engine = window.blockwerk.engine;
+  window.__abgriff = 0;
+  const original = engine.analyser.disconnect.bind(engine.analyser);
+  engine.analyser.disconnect = (...args) => { window.__abgriff += 1; return original(...args); };
+  engine.tape.rec = { stop() { /* schweigt */ } };
+});
+check('Der Abgriff wird auch im Fristpfad gelöst', ohneOnstop.abgriff === 1,
+  `${ohneOnstop.abgriff}× disconnect`);
+
 await page.screenshot({ path: 'tests/screenshot.png', fullPage: true });
 await browser.close();
 await server.close();
